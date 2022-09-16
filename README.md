@@ -16,7 +16,7 @@ This repository includes 2 versions:
 
 The original VB6 version: VB6 is x86 only, so this version was manually adjusted to operate with an x64 kernel. 
 
-The [twinBASIC](https://github.com/twinbasic/twinbasic) version: can target either, but a 32bit build won't work on x64. twinBASIC is a successor to VB6 that's 100% backwards compatible as a goal, and brings in x64 compilation and new language features. It's 99% backwards compatible in language now, which lets this project run with only changing VB6-specific assembly thunks to regular subclassing. GUI and objects have a bit to go, but this project doesn't use much that's not available... see [this thread on VBForums](https://www.vbforums.com/showthread.php?897148-twinBASIC-x64-compatible-port-of-Event-Tracing-for-Windows-File-Activity-Monitor) for more info.
+The [twinBASIC](https://github.com/twinbasic/twinbasic) version: can target either, but a 32bit build won't work on x64. twinBASIC is a successor to VB6 that's 100% backwards compatible as a goal, and brings in x64 compilation and new language features. It's 99% backwards compatible in language now, which lets this project run with only changing VB6-specific assembly thunks to regular subclassing. GUI and objects have a bit to go, but this project doesn't use much that's not available... see [this thread on VBForums](https://www.vbforums.com/showthread.php?897148-twinBASIC-x64-compatible-port-of-Event-Tracing-for-Windows-File-Activity-Monitor) for more info. Version 2.2.2 requires [twinBASIC Beta 122 or newer](https://github.com/twinbasic/twinbasic/releases) to open and build the source code.
 
 ### How It Works
 

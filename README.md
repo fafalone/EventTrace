@@ -1,4 +1,4 @@
-# VBEventTrace/TBEventTrace
+# VBEventTrace v2.1/TBEventTrace v2.2.2
 
 ![Screenshot](https://i.imgur.com/8F2HYde.jpg)
 
@@ -151,6 +151,13 @@ Changlog:
 
 ```
 'Applies to twinBASIC version only:
+'Version 2.2.2 -Subclassing moved back to form and PictureBox now used for
+'               'More Options' popup, taking advantage of new tB features to
+'               make this more similar to the VB version.
+'              -Bug fix: Default process cache option not selected; this was a
+'                        visual glitch only, the logic still applied the right
+'                        default if you didn't set it.
+'
 'Version 2.2 - Added option to display full process command line. (tB only)
 '              -Bug fix: SimpleOp incorrect buffer size error (MOF has no
 '               packing in data; tB inserted 4 extra bytes).

@@ -1,0 +1,2270 @@
+[ Description ("") ]
+[ FormDesignerId ("44F78F88-C69D-4D4A-A790-ABCA34ADF160") ]
+[ PredeclaredId ]
+Class Form1
+Option Explicit
+
+'************************************************************************************
+Private Const AppTitle = "TBEventTrace"
+'TBEventTrace 1.21, port of:
+'VBEventTrace File Activity Monitor
+'Note: Unlike the VB6 version, the 32bit build will not run on 64bit Windows.
+'  But, the 32bit build WILL run on 32bit Windows, where the VB6 version doesn't.
+'  The hard-coded 64bit MOF types have been removed.
+'
+'
+'Version: 2.21 (2022 Sep 16)
+'
+'Monitor disk and file activity with the Windows Event Tracing NT Kernel Logger
+'This will catch many activities missed by higher level methods like shell
+'change notifications, directory change notifications, and
+'scanning running processes for file handles.
+'
+'(c) 2022 Jon Johnson (aka fafalone)
+'
+'Help from many people, including VB Forum's own The trick, were invaluable
+'for this project, because Microsoft's documentation is terrible.
+'
+'Notes:
+'
+'-You must run as administrator to use the NT Kernel Logger (and thus this app)
+'
+'-We begin receiving notifications after ProcessTrace is called; but
+' ProcessTrace will not return until the trace is shut off and block execution.
+' So, this project makes use of The trick's vbTrickThreading module to allow
+' it to be called from a new thread. I've had some stability issues in the IDE,
+' it may only run compiled.
+'
+'-I'm not sure about compatibility with Windows XP or Vista.
+'
+'-We respond to *a lot* of events, and the VB ListView was seriously choking.
+' A regular API ListView might have had similar issues, so even though it
+' adds a lot of complexity to an already monstrously complex demo project,
+' I went for an API virtual ListView (LVS_OWNERDATA). ListView items are
+' supplied by a callback, and only the ones being displayed are queried.
+'
+'Changelog
+'Version 2.2.2 -Subclassing moved back to form and PictureBox now used for
+'               'More Options' popup, taking advantage of new tB features to
+'               make this more similar to the VB version.
+'              -Bug fix: Default process cache option not selected; this was a
+'                        visual glitch only, the logic still applied the right
+'                        default if you didn't set it.
+'
+'Version 2.2   -Added option to display full process command line. (tB only)
+'              -Bug fix: SimpleOp incorrect buffer size error (MOF has no
+'               packing in data; tB inserted 4 extra bytes).
+'              -Bug fix: Removed some incorrect padding; some not needed on x64
+'                        and some not needed on x86. In fact, no manual
+'                        alignment is neccessary at all in this version, 
+'                        (besides removing it from MOF); it was just an 
+'                        artifact of these structs going straight to the kernel,
+'                        so manual x64 alignment is needed for the VB WOW64
+'                        version (or if you convert this back, add it back in).
+'
+'Version 2.11 -Bug fix: Process Name did not support Unicode.
+'             -Bug fix: ProcessPrebuildFullCache prematurely exited loop.
+'
+'Version 2.1: -If you scroll away from the bottom, it will stay where you scroll
+'              to instead of immediately going back to the bottom.
+'
+'             -Bug fix: FileIo_DirEnum pattern and InfoClass were reported wrong.
+'
+'Version 2.0: -Running as administrator is no longer strictly required. However,
+'              you must still be a member of the administators group, a member
+'              of the Performance Log Users group, or another user/group that has
+'              access to the SeSystemProfilePrivilege, which the code now calls
+'              AdjustTokenPrivileges to set.
+'
+'             -Project has been optimized to track disk read/write alone. Because
+'              of caching, FileIo events don't neccessarily trigger disk activity,
+'              so if you only wanted to watch disk activity, disabling everything
+'              except DiskIO will enable DiskIO Exclusive Mode; FileIo events not
+'              activated by the DiskIO flags will be disabled (and can't be enabled
+'              while the trace is in progress, since this is done in the inital
+'              flags), and DiskIO will properly attribute IO to Create events,
+'              where when disabled, create events use FileIO_ReadWrite, which
+'              doesn't reflect disk io because of caching.
+'              DiskIO includes open/delete events that trigger disk activity.
+'
+'             -Added option to merge certain activities by the same process on the
+'              same file. Create/open/read/write/delete can be merged. Multiple
+'              events may still exist where an initial pid was -1 and then updated.
+'              An additional option restricts this to same opcode only (combining
+'              only read/write opcodes).
+'
+'             -The default configuration is now DiskIO Exclusive Mode with merging
+'              enabled. Remember that enabling any FileIO operation takes it out
+'              of that mode, and that FileIO operations do not represent disk read
+'              and write activity due to caching.
+'
+'             -There's now an option to disable the initial rundown; you'll miss
+'              activity on open files during the trace, but idle disks won't spin
+'              up. If this option is used, the rundown may be performed at the end
+'              of the trace (always, if old logger mode, optionally with new), and
+'              the disk io logs will be scanned for missed events, and added then.
+'
+'             -Process caching now has an option to be disabled (never, always, or
+'              only when running in DiskIO Exclusive Mode), for situations where
+'              process id use may be a problem (processes rapidly being created
+'              and exiting).
+'
+'             -Context switch tracking for process attribution is now implemented,
+'              however I've found it entirely useless. It only works in cases where
+'              the pid was already returned.
+'
+'             -Log sync interval can now be adjusted.
+'
+'             -Changed how filenames are read to no longer use a fixed buffer;
+'              the MOF structure now uses String (variable length) and is set
+'              by a Fill_<type> routine in modEventTrace that first copies the
+'              data into a variable length byte array, then sets the MOF type
+'              String. This allows long file name support without using a
+'              massive fixed buffer.
+'
+'             -There's now an event for unattributed FileIo_ReadWrite events like
+'              there is for DiskIo_ReadWrite, to catch read/writes on files already
+'              open before the trace started.
+'
+'             -So few events were in the type enum I got rid of the enum and made
+'              them byte constants to improve performance. Also added constants
+'              for the FileIo opcodes.
+'
+'             -Added some more flags in the Misc column.
+'
+'             -Cleaned up some lingering potentially unsafe thread data accesses.
+'
+'             -There's reports of poor critical section performance on Win8+ with
+'              the default dynamic spin count adjustment; trying 4000 instead per
+'              MSDN recommendation as optimal; will see how it goes.
+'
+'             -Bug fix: AddActivity didn't add read/write size, so it was only ever
+'                       non-zero if an update came in, which was generally never for
+'                       FileIo since MSDN lied about FileKey being what you use to
+'                       correlate FileIo_ReadWrite events.
+'
+'             -Bug fix: While read/write totals were updated, sync between the
+'                       ActivityLog struct and threadmain copy consisted only of
+'                       adding new items, so only updates that occured between sync
+'                       calls were ever updated on the ListView.
+'                       This also impacted pid updates.
+'
+'Version 1.2: -Now able to log read/write to files open before the trace started
+'              by triggering a rundown. This comes up as 'DiskIO', which can
+'              also be filtered. If you disable all events except DiskIO, the
+'              list should be similar to what ProcessHacker does.
+'
+'             -Numbers only enforced on refresh interval textbox; can now update
+'              while running by pressing enter. (Note: All other checkboxes except
+'              'Use new logger' take effect immediately while running too, and
+'              the 'Update' button on filters is for when it's running.)
+'
+'             -Fixed a number of small bugs.
+'
+'             -Added additional declares and corrected enums for modEventTrace.
+'
+'Version 1.1: -Fixed bug where old logger option didn't worked, sped up code
+'              significantly by using a different wchar->string method and
+'              alternative to VB's Replace() function, and added thread safety
+'              to prevent crashes from too high an incoming event rate.
+'
+'             -There's now a separate activity log that the ListView displays
+'              that's synchronized to the primary one inside a critical section
+'              so the same memory isn't accessed by both threads at the same time,
+'              which caused crashes in certain circumstances, on slower systems,
+'              or very high event rates (such as the rundown with the old logger).
+'
+'************************************************************************************
+
+
+Private nCurCt As Long
+Private nLogPos As Long
+
+Private bMergeColVis As Boolean
+Private bCmdLineColVis As Boolean
+
+Private bDbgPriv As Boolean
+
+
+Private Const BCM_SETSHIELD = (BCM_FIRST + &HC)
+Private Const SB_BOTTOM = 7
+Private Const EM_SCROLL As Integer = &HB5
+Private Const ES_NUMBER = &H2000
+Private Const SE_SYSTEM_PROFILE_NAME As String = "SeSystemProfilePrivilege"
+Private Const SE_DEBUG_NAME As String = "SeDebugPrivilege"
+Private Declare PtrSafe Function AdjustTokenPrivileges Lib "advapi32.dll" (ByVal TokenHandle As LongPtr, ByVal DisableAllPrivileges As Long, ByRef NewState As TOKEN_PRIVILEGES, ByVal BufferLength As Long, ByRef PreviousState As Any, ByRef ReturnLength As Long) As Long
+Private Declare PtrSafe Function LookupPrivilegeValueW Lib "advapi32.dll" (ByVal StrPtrSystemName As LongPtr, ByVal StrPtrName As LongPtr, lpLuid As LUID) As Long
+Private Declare PtrSafe Function OpenProcessToken Lib "advapi32.dll" (ByVal ProcessHandle As LongPtr, ByVal DesiredAccess As Long, TokenHandle As LongPtr) As Long
+Private Declare PtrSafe Function GetCurrentProcess Lib "kernel32" () As LongPtr
+Private Declare PtrSafe Function IsUserAnAdmin Lib "shell32" () As Long
+Private Declare PtrSafe Function LoadLibraryW Lib "kernel32" (ByVal lpLibFileName As LongPtr) As LongPtr
+Private Declare PtrSafe Function LoadResource Lib "kernel32" (ByVal hInstance As LongPtr, ByVal hResInfo As LongPtr) As LongPtr
+Private Declare PtrSafe Function LockResource Lib "kernel32" (ByVal hResData As LongPtr) As LongPtr
+Private Declare PtrSafe Function FindResourceW Lib "kernel32" (ByVal hInstance As LongPtr, ByVal lpName As LongPtr, ByVal lpType As LongPtr) As LongPtr
+Private Declare PtrSafe Function FreeLibrary Lib "kernel32" (ByVal hLibModule As LongPtr) As Long
+Private Declare PtrSafe Function GetModuleFileName Lib "kernel32" Alias "GetModuleFileNameW" (ByVal hModule As LongPtr, ByVal lpFileName As LongPtr, ByVal nSize As Long) As Long
+Private Declare PtrSafe Function GetCursorPos Lib "user32" (lpPoint As Any) As Long
+Private Declare PtrSafe Function SHOpenFolderAndSelectItems Lib "shell32" (ByVal pidlFolder As LongPtr, ByVal cidl As Long, ByVal apidl As LongPtr, ByVal dwFlags As Long) As Long
+Private Declare PtrSafe Function ILCreateFromPathW Lib "shell32" (ByVal pwszPath As LongPtr) As LongPtr
+Private Declare PtrSafe Function ILFindLastID Lib "shell32" (ByVal pidl As LongPtr) As LongPtr
+Private Declare PtrSafe Function CreateFileW Lib "kernel32" (ByVal lpFileName As LongPtr, ByVal dwDesiredAccess As Long, ByVal dwShareMode As Long, lpSecurityAttributes As Any, ByVal dwCreationDisposition As Long, ByVal dwFlagsAndAttributes As Long, ByVal hTemplateFile As LongPtr) As LongPtr
+Private Declare PtrSafe Function SetFilePointer Lib "kernel32" (ByVal hFile As LongPtr, ByVal lDistanceToMove As Long, lpDistanceToMoveHigh As Long, ByVal dwMoveMethod As Long) As Long
+Private Declare PtrSafe Function WriteFile Lib "kernel32.dll" (ByVal hFile As LongPtr, lpBuffer As Any, ByVal nNumberOfBytesToWrite As Long, lpNumberOfBytesWritten As Long, lpOverlapped As LongPtr) As Long
+Private Declare PtrSafe Function ReleaseCapture Lib "user32" () As Long
+Private Declare PtrSafe Function GetClientRect Lib "user32" (ByVal hWnd As LongPtr, lpRect As RECT) As Long
+Private Declare PtrSafe Function SetParent Lib "user32" (ByVal hWndChild As LongPtr, ByVal hWndNewParent As LongPtr) As LongPtr
+Private Declare PtrSafe Function CompareMemory Lib "ntdll" Alias "RtlCompareMemory" (Source1 As Any, Source2 As Any, ByVal Length As LongPtr) As LongPtr
+Private Declare PtrSafe Function InsertMenuItemW Lib "user32" (ByVal hMenu As LongPtr, ByVal uItem As Long, ByVal fByPosition As Boolean, lpmii As MENUITEMINFOW) As Boolean
+Private Declare PtrSafe Function CreatePopupMenu Lib "user32" () As LongPtr
+Private Declare PtrSafe Function TrackPopupMenu Lib "user32" (ByVal hMenu As LongPtr, ByVal wFlags As TPM_wFlags, ByVal x As Long, ByVal y As Long, ByVal nReserved As Long, ByVal hwnd As LongPtr, lpRC As Any) As Long
+Private Declare PtrSafe Function SetFocusAPI Lib "user32" Alias "SetFocus" (ByVal hWnd As LongPtr) As LongPtr
+Private DeclareWide PtrSafe Function LoadIcon Lib "user32" Alias "LoadIconW" (ByVal hInstance As LongPtr, ByVal lpIconName As String) As LongPtr
+Private Declare PtrSafe Function DestroyIcon Lib "user32" (ByVal hIcon As LongPtr) As Long
+Private Const GWL_STYLE As Long = (-16)
+Private Const WM_NCLBUTTONDOWN = &HA1
+Private Const WM_SETICON = &H80
+Private Const HTCAPTION = 2
+Private hIconApp As LongPtr
+Private Enum WinStylesEx
+    WS_EX_DLGMODALFRAME = &H1
+    WS_EX_NOPARENTNOTIFY = &H4
+    WS_EX_TOPMOST = &H8
+    WS_EX_ACCEPTFILES = &H10
+    WS_EX_TRANSPARENT = &H20
+
+    WS_EX_MDICHILD = &H40
+    WS_EX_TOOLWINDOW = &H80
+    WS_EX_WINDOWEDGE = &H100
+    WS_EX_CLIENTEDGE = &H200
+    WS_EX_CONTEXTHELP = &H400
+
+    WS_EX_RIGHT = &H1000
+    WS_EX_LEFT = &H0
+    WS_EX_RTLREADING = &H2000
+    WS_EX_LTRREADING = &H0
+    WS_EX_LEFTSCROLLBAR = &H4000
+    WS_EX_RIGHTSCROLLBAR = &H0
+
+    WS_EX_CONTROLPARENT = &H10000
+    WS_EX_STATICEDGE = &H20000
+    WS_EX_APPWINDOW = &H40000
+
+    WS_EX_OVERLAPPEDWINDOW = (WS_EX_WINDOWEDGE Or WS_EX_CLIENTEDGE)
+    WS_EX_PALETTEWINDOW = (WS_EX_WINDOWEDGE Or WS_EX_TOOLWINDOW Or WS_EX_TOPMOST)
+End Enum   ' WinStylesEx
+
+
+
+Private Type SCROLLINFO
+    cbSize As Long
+    fMask As Long
+    nMin As Long
+    nMax As Long
+    nPage As Long
+    nPos As Long
+    nTrackPos As Long
+End Type
+Private Declare PtrSafe Function GetScrollInfo Lib "user32" (ByVal hWnd As LongPtr, ByVal wBar As Long, ByRef lpScrollInfo As SCROLLINFO) As Long
+Private Const SB_HORZ As Long = 0
+Private Const SB_VERT As Long = 1
+Private Const SIF_RANGE = &H1
+Private Const SIF_PAGE = &H2
+Private Const SIF_POS = &H4
+Private Const SIF_DISABLENOSCROLL = &H8
+Private Const SIF_TRACKPOS = &H10
+Private Const SIF_ALL = (SIF_RANGE Or SIF_PAGE Or SIF_POS Or SIF_TRACKPOS)
+
+Private Const FILE_END As Long = 2&
+Private Const GENERIC_WRITE   As Long = &H40000000
+Private Const FILE_SHARE_READ = &H1&
+Private Const OPEN_ALWAYS As Long = 4&
+Private Const CREATE_ALWAYS = 2&
+
+Private Const OFASI_EDIT = &H1 'Initiate a rename (if single file)
+Private Const OFASI_OPENDESKTOP = &H2 'Not used by this Demo, but highlights files on the desktop.
+
+Private Const sCol0 As String = "Process"
+Private Const sCol1 As String = "Event"
+Private Const sCol2 As String = "File"
+Private Const sCol3 As String = "Read"
+Private Const sCol4 As String = "Write"
+Private Const sCol5 As String = "Date added"
+Private Const sCol6 As String = "Last r/w update"
+Private Const sCol7 As String = "Notes"
+Private Const sCol8 As String = "Ct/Opn"
+Private Const sCol9 As String = "Del"
+Private Const sCol10 As String = "Command Line"
+
+
+Public Enum TOKEN_INFORMATION_CLASS
+    TokenUser = 1
+    TokenGroups
+    TokenPrivileges
+    TokenOwner
+    TokenPrimaryGroup
+    TokenDefaultDacl
+    TokenSource
+    TokenType
+    TokenImpersonationLevel
+    TokenStatistics
+    TokenRestrictedSids
+    TokenSessionId
+    TokenGroupsAndPrivileges
+    TokenSessionReference
+    TokenSandBoxInert
+    TokenAuditPolicy
+    TokenOrigin
+    TokenElevationType
+    TokenLinkedToken
+    TokenElevation
+    TokenHasRestrictions
+    TokenAccessInformation
+    TokenVirtualizationAllowed
+    TokenVirtualizationEnabled
+    TokenIntegrityLevel
+    TokenUIAccess
+    TokenMandatoryPolicy
+    TokenLogonSid
+    TokenIsAppContainer
+    TokenCapabilities
+    TokenAppContainerSid
+    TokenAppContainerNumber
+    TokenUserClaimAttributes
+    TokenDeviceClaimAttributes
+    TokenRestrictedUserClaimAttributes
+    TokenRestrictedDeviceClaimAttributes
+    TokenDeviceGroups
+    TokenRestrictedDeviceGroups
+    TokenSecurityAttributes
+    TokenIsRestricted
+    MaxTokenInfoClass
+End Enum
+
+Private Const TOKEN_ASSIGN_PRIMARY As Long = &H1
+Private Const TOKEN_DUPLICATE As Long = &H2
+Private Const TOKEN_IMPERSONATE As Long = &H4
+Private Const TOKEN_QUERY As Long = &H8
+Private Const TOKEN_QUERY_SOURCE As Long = &H10
+Private Const TOKEN_ADJUST_PRIVILEGES As Long = &H20
+Private Const TOKEN_ADJUST_GROUPS As Long = &H40
+Private Const TOKEN_ADJUST_DEFAULT As Long = &H80
+Private Const TOKEN_ADJUST_SESSIONID As Long = &H100
+Private Const TOKEN_ALL_ACCESS = (STANDARD_RIGHTS_REQUIRED Or TOKEN_ASSIGN_PRIMARY Or TOKEN_DUPLICATE Or TOKEN_IMPERSONATE Or TOKEN_QUERY Or TOKEN_QUERY_SOURCE Or TOKEN_ADJUST_PRIVILEGES Or TOKEN_ADJUST_GROUPS Or TOKEN_ADJUST_DEFAULT Or TOKEN_ADJUST_SESSIONID)
+
+Private Type TOKEN_ELEVATION
+    TokenIsElevated As Long
+End Type
+Private Declare PtrSafe Function GetTokenInformation Lib "advapi32.dll" (ByVal TokenHandle As LongPtr, ByVal TokenInformationClass As TOKEN_INFORMATION_CLASS, TokenInformation As Any, ByVal TokenInformationLength As Long, ReturnLength As Long) As Long
+
+Private Type LUID
+    lowPart As Long
+    highPart As Long
+End Type
+Private Type LUID_AND_ATTRIBUTES
+    pLuid       As LUID
+    Attributes  As Long
+End Type
+
+Private Type TOKEN_PRIVILEGES
+    PrivilegeCount      As Long
+    Privileges(0 To 1)  As LUID_AND_ATTRIBUTES
+End Type
+
+Private Enum SE_PRIVILEGE_ATTRIBUTES
+'The attributes of a privilege can be a combination of the following values.
+    SE_PRIVILEGE_ENABLED = &H2&                 'The privilege is enabled.
+    SE_PRIVILEGE_ENABLED_BY_DEFAULT = &H1&      'The privilege is enabled by default.
+    SE_PRIVILEGE_REMOVED = &H4&                 'Used to remove a privilege. For details, see AdjustTokenPrivileges.
+    SE_PRIVILEGE_USED_FOR_ACCESS = &H80000000   'The privilege was used to gain access to an object or service.
+                                                ' This flag is used to identify the relevant privileges in a set passed by a client application
+                                                ' that may contain unnecessary privileges.
+                                                'PrivilegeCheck sets the Attributes member of each LUID_AND_ATTRIBUTES structure to
+                                                ' SE_PRIVILEGE_USED_FOR_ACCESS if the corresponding privilege is enabled.
+End Enum
+
+
+
+
+Private Type VS_FIXEDFILEINFO
+    dwSignature As Long
+    dwStrucVersionl As Integer   ' e.g. = &h0000 = 0
+    dwStrucVersionh As Integer   ' e.g. = &h0042 = .42
+    dwFileVersionMSl As Integer   ' e.g. = &h0003 = 3
+    dwFileVersionMSh As Integer   ' e.g. = &h0075 = .75
+    dwFileVersionLSl As Integer   ' e.g. = &h0000 = 0
+    dwFileVersionLSh As Integer   ' e.g. = &h0031 = .31
+    dwProductVersionMSl As Integer   ' e.g. = &h0003 = 3
+    dwProductVersionMSh As Integer   ' e.g. = &h0010 = .1
+    dwProductVersionLSl As Integer   ' e.g. = &h0000 = 0
+    dwProductVersionLSh As Integer   ' e.g. = &h0031 = .31
+    dwFileFlagsMask As Long   ' = &h3F for version "0.42"
+    dwFileFlags As Long   ' e.g. VFF_DEBUG Or VFF_PRERELEASE
+    dwFileOS As Long   ' e.g. VOS_DOS_WINDOWS16
+    dwFileType As Long   ' e.g. VFT_DRIVER
+    dwFileSubtype As Long   ' e.g. VFT2_DRV_KEYBOARD
+    dwFileDateMS As Long   ' e.g. 0
+    dwFileDateLS As Long   ' e.g. 0
+End Type
+Private Type VS_VERSIONINFO_FIXED_PORTION
+    wLength As Integer
+    wValueLength As Integer
+    wType As Integer
+    szKey(1 To 16) As Integer   'Unicode "VS_VERSION_INFO" & vbNullChar.
+    Padding1(1 To 1) As Integer 'Pad next field to DWORD boundary.
+    Value As VS_FIXEDFILEINFO
+End Type
+Private Const RT_VERSION = 16
+
+Private Enum ShowWindowTypes
+    SW_HIDE = 0
+    SW_SHOWNORMAL = 1
+    SW_NORMAL = 1
+    SW_SHOWMINIMIZED = 2
+    SW_SHOWMAXIMIZED = 3
+    SW_MAXIMIZE = 3
+    SW_SHOWNOACTIVATE = 4
+    SW_SHOW = 5
+    SW_MINIMIZE = 6
+    SW_SHOWMINNOACTIVE = 7
+    SW_SHOWNA = 8
+    SW_RESTORE = 9
+    SW_SHOWDEFAULT = 10
+End Enum
+Private Enum SHELLEXECUTEMASK
+    SEE_MASK_CLASSNAME = &H1
+    SEE_MASK_CLASSKEY = &H3
+    SEE_MASK_IDLIST = &H4
+    SEE_MASK_INVOKEIDLIST = &HC
+    SEE_MASK_ICON = &H10
+    SEE_MASK_HOTKEY = &H20
+    SEE_MASK_NOCLOSEPROCESS = &H40
+    SEE_MASK_CONNECTNETDRV = &H80
+    SEE_MASK_FLAG_DDEWAIT = &H100
+    SEE_MASK_DOENVSUBST = &H200
+    SEE_MASK_FLAG_NO_UI = &H400
+    SEE_MASK_UNICODE = &H4000
+    SEE_MASK_NO_CONSOLE = &H8000
+    SEE_MASK_ASYNCOK = &H100000
+    SEE_MASK_HMONITOR = &H200000
+    SEE_MASK_NOZONECHECKS = &H800000
+    SEE_MASK_NOQUERYCLASSSTORE = &H1000000
+    SEE_MASK_WAITFORINPUTIDLE = &H2000000
+    SEE_MASK_FLAG_LOG_USAGE = &H4000000
+    SEE_MASK_FLAG_HINST_IS_SITE = &H8000000
+End Enum
+Private Type SHELLEXECUTEINFO
+    cbSize As Long
+    fMask As SHELLEXECUTEMASK
+    hWnd As LongPtr
+    lpVerb As LongPtr
+    lpFile As LongPtr
+    lpParameters As LongPtr
+    lpDirectory As LongPtr
+    nShow As ShowWindowTypes
+    hInstApp As LongPtr
+    lpIDList As LongPtr
+    lpClass As LongPtr
+    hkeyClass As LongPtr
+    dwHotKey As Long
+    hIcon As LongPtr
+    hProcess As LongPtr
+End Type
+Private Declare PtrSafe Function ShellExecuteExW Lib "shell32.dll" (lpExecInfo As SHELLEXECUTEINFO) As LongPtr
+
+Private Type ResultFolder
+    sPath As String
+    sFiles() As String
+End Type
+'**************************************************
+'Menu APIs
+
+Private Const widOpen As Long = 2500&
+Private Const widShow As Long = 2501&
+Private Const widProcProp As Long = 2502&
+Private Const widProcOpen As Long = 2503&
+Private Const widCopySel As Long = 2504&
+Private Const widCopyAll As Long = 2505&
+Private Const widCopySelLn As Long = 2506&
+Private Const widCopyAllLn As Long = 2507&
+Private Const mnOpen As String = "&Open item"
+Private Const mnShow As String = "&Show item in Explorer"
+Private Const mnProcProp As String = "&Process properties"
+Private Const mnProcOpen As String = "Sho&w process in Explorer"
+Private Const mnCopySel As String = "&Copy selected file names"
+Private Const mnCopyAll As String = "Copy &all file names"
+Private Const mnCopySelLn As String = "&Copy selected lines"
+Private Const mnCopyAllLn As String = "Copy &all lines"
+
+
+Private Type MENUITEMINFOW
+    cbSize As Long
+    fMask As MII_Mask
+    fType As MF_Type              ' MIIM_TYPE
+    fState As MF_State             ' MIIM_STATE
+    wID As Long                       ' MIIM_ID
+    hSubMenu As LongPtr            ' MIIM_SUBMENU
+    hbmpChecked As LongPtr      ' MIIM_CHECKMARKS
+    hbmpUnchecked As LongPtr  ' MIIM_CHECKMARKS
+    dwItemData As LongPtr          ' MIIM_DATA
+    dwTypeData As LongPtr        ' MIIM_TYPE
+    cch As Long                       ' MIIM_TYPE
+    hbmpItem As LongPtr
+End Type
+Private Enum MenuFlags
+    MF_INSERT = &H0
+    MF_ENABLED = &H0
+    MF_UNCHECKED = &H0
+    MF_BYCOMMAND = &H0
+    MF_STRING = &H0
+    MF_UNHILITE = &H0
+    MF_GRAYED = &H1
+    MF_DISABLED = &H2
+    MF_BITMAP = &H4
+    MF_CHECKED = &H8
+    MF_POPUP = &H10
+    MF_MENUBARBREAK = &H20
+    MF_MENUBREAK = &H40
+    MF_HILITE = &H80
+    MF_CHANGE = &H80
+    MF_END = &H80                    ' Obsolete -- only used by old RES files
+    MF_APPEND = &H100
+    MF_OWNERDRAW = &H100
+    MF_DELETE = &H200
+    MF_USECHECKBITMAPS = &H200
+    MF_BYPOSITION = &H400
+    MF_SEPARATOR = &H800
+    MF_REMOVE = &H1000
+    MF_DEFAULT = &H1000
+    MF_SYSMENU = &H2000
+    MF_HELP = &H4000
+    MF_RIGHTJUSTIFY = &H4000
+    MF_MOUSESELECT = &H8000&
+End Enum
+Private Enum MII_Mask
+    MIIM_STATE = &H1
+    MIIM_ID = &H2
+    MIIM_SUBMENU = &H4
+    MIIM_CHECKMARKS = &H8
+    MIIM_TYPE = &H10
+    MIIM_DATA = &H20
+    MIIM_BITMAP = &H80
+    MIIM_STRING = &H40
+End Enum
+Private Enum MF_Type
+    MFT_STRING = MF_STRING
+    MFT_BITMAP = MF_BITMAP
+    MFT_MENUBARBREAK = MF_MENUBARBREAK
+    MFT_MENUBREAK = MF_MENUBREAK
+    MFT_OWNERDRAW = MF_OWNERDRAW
+    MFT_RADIOCHECK = &H200
+    MFT_SEPARATOR = MF_SEPARATOR
+    MFT_RIGHTORDER = &H2000
+    MFT_RIGHTJUSTIFY = MF_RIGHTJUSTIFY
+End Enum
+Private Enum MF_State
+    MFS_GRAYED = &H3
+    MFS_DISABLED = MFS_GRAYED
+    MFS_CHECKED = MF_CHECKED
+    MFS_HILITE = MF_HILITE
+    MFS_ENABLED = MF_ENABLED
+    MFS_UNCHECKED = MF_UNCHECKED
+    MFS_UNHILITE = MF_UNHILITE
+    MFS_DEFAULT = MF_DEFAULT
+End Enum
+Private Enum TPM_wFlags
+    TPM_LEFTBUTTON = &H0
+    TPM_RIGHTBUTTON = &H2
+    TPM_LEFTALIGN = &H0
+    TPM_CENTERALIGN = &H4
+    TPM_RIGHTALIGN = &H8
+    TPM_TOPALIGN = &H0
+    TPM_VCENTERALIGN = &H10
+    TPM_BOTTOMALIGN = &H20
+
+    TPM_HORIZONTAL = &H0         ' Horz alignment matters more
+    TPM_VERTICAL = &H40            ' Vert alignment matters more
+    TPM_NONOTIFY = &H80           ' Don't send any notification msgs
+    TPM_RETURNCMD = &H100
+
+    TPM_HORPOSANIMATION = &H400
+    TPM_HORNEGANIMATION = &H800
+    TPM_VERPOSANIMATION = &H1000
+    TPM_VERNEGANIMATION = &H2000
+    TPM_NOANIMATION = &H4000
+End Enum
+Public Enum WinButtonStyles
+    BS_3STATE = &H5&
+    BS_AUTO3STATE = &H6&
+    BS_AUTOCHECKBOX = &H3&
+    BS_AUTORADIOBUTTON = &H9&
+    BS_CHECKBOX = &H2&
+    BS_DEFPUSHBUTTON = &H1&
+    BS_GROUPBOX = &H7&
+    BS_LEFTTEXT = &H20&
+    BS_OWNERDRAW = &HB&
+    BS_PUSHBUTTON = &H0&
+    BS_RADIOBUTTON = &H4&
+    BS_USERBUTTON = &H8&
+    BS_ICON = &H40&
+    BS_BITMAP = &H80&
+    BS_LEFT = &H100&
+    BS_RIGHT = &H200&
+    BS_CENTER = &H300&
+    BS_TOP = &H400&
+    BS_BOTTOM = &H800&
+    BS_VCENTER = &HC00&
+    BS_PUSHLIKE = &H1000&
+    BS_MULTILINE = &H2000&
+    BS_NOTIFY = &H4000&
+    BS_FLAT = &H8000&
+    BS_RIGHTBUTTON = BS_LEFTTEXT
+    BS_SPLITBUTTON = &HC
+    BS_DEFSPLITBUTTON = &HD
+    BS_COMMANDLINK = &HE
+    BS_DEFCOMMANDLINK = &HF
+End Enum
+
+Private Const BCM_FIRST = &H1600
+Private Const BM_SETSTATE = &HF3
+Private Const BN_KILLFOCUS = 7&
+Private Declare PtrSafe Function MessageBoxW Lib "user32" (ByVal hWnd As LongPtr, ByVal lpText As LongPtr, ByVal lpCaption As LongPtr, ByVal uType As Long) As Long
+
+Private Declare PtrSafe Function DefSubclassProc Lib "comctl32.dll" Alias "#413" (ByVal hWnd As LongPtr, ByVal uMsg As Long, ByVal wParam As LongPtr, ByVal lParam As LongPtr) As LongPtr
+Private Declare PtrSafe Function SetWindowSubclass Lib "comctl32.dll" Alias "#410" (ByVal hWnd As LongPtr, ByVal pfnSubclass As LongPtr, ByVal uIdSubclass As LongPtr, Optional ByVal dwRefData As LongPtr) As Long
+Private Declare PtrSafe Function RemoveWindowSubclass Lib "comctl32.dll" Alias "#412" (ByVal hWnd As LongPtr, ByVal pfnSubclass As LongPtr, ByVal uIdSubclass As LongPtr) As Long
+
+    Private Sub Option1_Click() Handles Option1.Click
+        If Option1.Value = True Then
+            Option2.Value = False
+        End If
+    End Sub
+    
+    Private Sub Option2_Click() Handles Option2.Click
+         If Option2.Value = True Then
+            Option1.Value = False
+        End If
+    End Sub
+    
+    Private Sub Form_Load() Handles Form.Load
+    InitializeCriticalSectionAndSpinCount oCS, 4000&
+    InitializeCriticalSectionAndSpinCount oCS2, 4000&
+    
+    Dim hDC As LongPtr
+    hDC = GetDC(0&)
+    m_ScaleX = GetDeviceCaps(hDC, LOGPIXELSX) / 96
+    Debug.Print "dpix=" & GetDeviceCaps(hDC, LOGPIXELSX) / 96
+    m_ScaleY = GetDeviceCaps(hDC, LOGPIXELSY) / 96
+    ReleaseDC 0&, hDC
+    
+    hIconApp = LoadIcon(App.hInstance, 0)
+    Call SendMessage(Me.hWnd, WM_SETICON, 0, ByVal hIconApp)
+    Dim dwStyle As LongPtr
+    dwStyle = GetWindowLong(Check18.hWnd, GWL_STYLE)
+    dwStyle = dwStyle Or BS_MULTILINE Or BS_VCENTER
+    SetWindowLong Check18.hWnd, GWL_STYLE, dwStyle
+    Check18.Refresh
+
+    ReDim DispActLog(0&)
+    tmrLog.Interval = 2500
+    tmrLog.Enabled = True
+    If Not IsProcessElevated() Then
+        If AdjustPrivileges() = False Then
+            Command1.Enabled = False
+            Command2.Enabled = False
+            Command3.Enabled = False
+            Command4.Enabled = False
+            Command6.Enabled = False
+            MsgBox "This program uses the NT Kernel Logger, which requires you to either run this program as Administrator or " & _
+                "be a member of the Administrators group, a member of the Performance Log Users group, or another user/group " & _
+                "with access to the SeSystemProfilePrivilege.", vbCritical + vbOKOnly, AppTitle
+            Exit Sub
+        End If
+    End If
+
+    Dim IsWow64 As Long
+    Dim hProc As LongPtr
+    hProc = OpenProcess(PROCESS_QUERY_INFORMATION, 0&, GetCurrentProcessId())
+    If hProc Then
+        #If Not Win64 Then
+        Call IsWow64Process(hProc, IsWow64)
+        If IsWow64 Then
+            MsgBox "Please use the 64bit version for 64bit Windows: IsWow64:" & IsWow64, vbCritical + vbOKOnly, AppTitle
+            Unload Me
+        End If
+        #End If
+        ReadWindowsVersion
+        If bIsWin8OrGreater Then
+            bUseNewLogMode = True
+        Else
+            Check12.Value = vbUnchecked
+            Check12.Enabled = False
+        End If
+        hBtnPause = Command6.hWnd
+        SetNumbersOnly Text5.hWnd
+        SetNumbersOnly Text6.hWnd
+        MakePushButton hBtnPause
+        Subclass2 Me.hWnd, AddressOf F1WndProc, Me.hWnd
+        InitLV
+        'PrebuildFullProcessCache
+        'dbg_DumpCache
+        'TestFmt
+        CloseHandle hProc
+        'GenerateTestData
+        tmrRefresh.Interval = CLng(Text5.Text)
+        tmrRefresh.Enabled = True
+        SetFocusAPI Command1.hWnd
+    Else
+        Form1.Enabled = False
+        MsgBox "Error accessing process.", vbCritical + vbOKOnly, AppTitle
+    End If
+    'DumpMap 
+    End Sub
+    
+    Private Sub Option3_Click() Handles Option3.Click
+        If Option3.Value = True Then
+            Option4.Value = False
+            Option5.Value = False
+            ProcInfoNoCache = False
+        End If
+    End Sub
+    
+    Private Sub Option4_Click() Handles Option4.Click
+        If Option4.Value = True Then
+            Option3.Value = False
+            Option5.Value = False
+            ProcInfoNoCache = True
+        End If
+    End Sub
+    
+    Private Sub Option5_Click() Handles Option5.Click
+        If Option5.Value = True Then
+            Option3.Value = False
+            Option4.Value = False
+            If DiskIOExclusive Then
+                ProcInfoNoCache = True
+            Else
+                ProcInfoNoCache = False
+            End If
+       End If
+    End Sub
+    
+    Private Sub Check1_Click() Handles Check1.Click
+        bEventCreate = (Check1.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check10_Click() Handles Check10.Click
+        bIgnoreSelf = (Check10.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check12_Click() Handles Check12.Click
+        bUseNewLogMode = (Check12.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check13_Click() Handles Check13.Click
+        bEventFsctl = (Check13.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check14_Click() Handles Check14.Click
+        bEventDiskIO = (Check14.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check15_Click() Handles Check15.Click
+        bUseInitRd = (Check15.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check16_Click() Handles Check16.Click
+        bUseEndRd = (Check16.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check17_Click() Handles Check17.Click
+        bEnableCSwitch = (Check17.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check18_Click() Handles Check18.Click
+        bMergeSameFile = (Check18.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check19_Click() Handles Check19.Click
+        bMergeSameCode = (Check19.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check2_Click() Handles Check2.Click
+        bEventRead = (Check2.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check20_Click() Handles Check20.Click
+        If bMergeColVis Then
+            Call SendMessage(hLVS, LVM_DELETECOLUMN, 9&, ByVal 0&)
+            Call SendMessage(hLVS, LVM_DELETECOLUMN, 8&, ByVal 0&)
+            bMergeColVis = False
+        Else
+            AddMergeCols
+            bMergeColVis = True
+        End If
+    End Sub
+    
+    Private Sub Check21_Click() Handles Check21.Click
+        bSupDIOE = (Check21.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check3_Click() Handles Check3.Click
+        bEventWrite = (Check3.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check4_Click() Handles Check4.Click
+        bEventDelete = (Check4.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check5_Click() Handles Check5.Click
+        bEventRename = (Check5.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check6_Click() Handles Check6.Click
+        bEventQuery = (Check6.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check7_Click() Handles Check7.Click
+        bEventSetInfo = (Check7.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check8_Click() Handles Check8.Click
+        bEventDirEnum = (Check8.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check9_Click() Handles Check9.Click
+        bEventNoRundown = (Check9.Value = vbChecked)
+    End Sub
+    
+    Private Sub Check22_Click() Handles Check22.Click
+        If Check22.Value = vbChecked Then
+            If bDbgPriv = False Then
+                PostLog "Attempting to enable debug privilege to access commandline..."
+                If EnableDebugPrivilege() = False Then
+                    PostLog "Debug privilege required to access command line."
+                    Check22.Value = vbUnchecked
+                    Check22.Enabled = False 'Insufficient privileges can't be rectified without re-launch
+                    Exit Sub
+                End If
+            End If
+            AddCmdLineCol
+            ProcInfoGetCommandLine = True
+            Dim i As Long, ct As Long, lp As LongPtr
+            ct = Header_GetItemCount(hLVSHdr)
+            For i = 0 To ct - 1
+                lp = GetHDItemlParam(hLVSHdr, i)
+                Debug.Print "i=" & i & ",lp=" & lp
+            Next
+            
+        Else
+            RemoveCmdLineCol
+            ProcInfoGetCommandLine = False
+        End If
+    End Sub
+    
+    Private Sub Command1_Click() Handles Command1.Click
+        bStopping = False
+        Command1.Enabled = False
+        SetFilterOptions
+        tmrRefresh.Interval = CLng(Text5.Text)
+        tmrRefresh.Enabled = True
+        tmrLog.Interval = CLng(Text6.Text)
+        bScrBtm = True
+        If Check11.Value = vbChecked Then
+            ClearBuffers
+        End If
+        If InitTrace() Then
+            Command5.Enabled = True
+            PostLog "Successfully started trace."
+        Else
+            Command1.Enabled = True
+            PostLog "Failed to start trace."
+        End If
+    End Sub
+    
+    Private Sub Command10_Click() Handles Command10.Click
+        Dim sMsg As String
+        sMsg = "Physical DiskIO will capture activity reading/writing from the disk. This includes an open/create not cached, read/write, and delete." & vbCrLf & _
+            "The FileIO events include all events, where many of these events will be done on cached copies, and don't involve physically accessing the disk." & vbCrLf & vbCrLf & _
+            "This version includes an optimized DiskIO exclusive mode, where only that event set is checked, to monitor disk activity only. The 'Supplement' " & _
+            "option enables the FileIO events but filters them out from display; this will aid in process attribution, but may result in open/create messages " & _
+            "from cached files. The difference between this option and manually enabling FileIO events is the optimizations added for DiskIO exclusive mode."
+            
+        MsgBox sMsg, vbInformation + vbOKOnly, App.ProductName
+    End Sub
+    
+    Private Sub Command2_Click() Handles Command2.Click
+        If bInitRdDone = False Then
+            If bUseNewLogMode = True Then
+                If bUseEndRd = True Then
+                    Dim enpm As ENABLE_TRACE_PARAMETERS
+                    enpm.Version = ENABLE_TRACE_PARAMETERS_VERSION_2
+                    Dim het As Long
+                    het = EnableTraceEx2(gTraceHandle, KernelRundownGuid, EVENT_CONTROL_CODE_ENABLE_PROVIDER, TRACE_LEVEL_NONE, &H10, 0@, 0&, enpm)
+                    PostLog "EnableTraceEx2(Enable)=0x" & Hex$(het)
+                End If
+            End If
+        End If
+
+        bStopping = True
+        EndTrace gSessionHandle, gTraceHandle
+
+        Dim hr As Long
+        hr = WaitForSingleObject(hThreadWait, 5000)
+        If hr = WAIT_OBJECT_0 Then
+            CloseHandle hThreadWait
+            tmrRefresh.Enabled = False
+            If bUseInitRd = False Then
+                If bInitRdDone = False Then
+                    DoEndRundown
+                End If
+            End If
+            SyncRecordsAndUpdate 'Do one last refresh to get the last data
+        ElseIf hr = WAIT_TIMEOUT Then
+            PostLog "Error: Timed out waiting for ProcessTrace thread exit."
+        ElseIf hr = WAIT_FAILED Then
+            PostLog "Error: WAIT_FAILED, " & GetErrorName(Err.LastDllError)
+        End If
+
+        Command5.Enabled = False
+        Check1.Enabled = True
+        Check2.Enabled = True
+        Check3.Enabled = True
+        Check4.Enabled = True
+        Check5.Enabled = True
+        Check6.Enabled = True
+        Check7.Enabled = True
+        Check8.Enabled = True
+        Check13.Enabled = True
+        Check21.Enabled = False
+
+        Dim IsIDE As Boolean
+        Debug.Assert MakeTrue(IsIDE)
+        If Not IsIDE Then
+            Command1.Enabled = True
+        End If
+    End Sub
+    
+    Private Sub Command3_Click() Handles Command3.Click
+        FlushTrace gTraceHandle
+    End Sub
+    
+    Private Sub Command4_Click() Handles Command4.Click
+        SaveFileActivity
+    End Sub
+    
+    Private Sub Command5_Click() Handles Command5.Click
+        SetFilterOptions
+        SetFilters
+    End Sub
+
+    Private Sub Command6_MouseUp(Button As Integer, Shift As Integer, X As Single, Y As Single) Handles Command6.MouseUp
+        If bPauseCol Then
+            ToggleButtonState Command6.hWnd, 0
+            bPauseCol = False
+        Else
+            ToggleButtonState Command6.hWnd, 1
+            bPauseCol = True
+        End If
+    End Sub
+    
+    Private Sub Command7_Click() Handles Command7.Click
+        Dim sMsg As String
+        sMsg = "Filters are processed in the following manner:" & vbCrLf & _
+            "(1) If Self is excluded, any activity from this process is ignored." & vbCrLf & _
+            "(2) Event process is checked, if included based on process filter, then " & vbCrLf & _
+            "(3) File path is checked against the inclusion filters, if not, the event is ignored, if it is, " & vbCrLf & _
+            "(4) File path is checked against the exclusion filters, if it matches an exclusion, the event if ignored, otherwise," & vbCrLf & _
+            "(5) File name is checked against inclusion filters, if it doesn't match one, the event is ignored, otherwise," & vbCrLf & _
+            "(6) File name is checked against the exclusion filter, if it matches one, the event is ignored." & vbCrLf & vbCrLf & _
+            "Multiple entries are separated with a | (bar), file and process names can use DOS wildcards, process IDs must be exact, " & _
+            "comparisons are case insensitive, process ids are indicated a > (caret)." & vbCrLf & vbCrLf & _
+            "Note: If an activity initially occurs with a pid of -1, if the process is identified later through correlation, that will not be filtered even if the pid should be."
+        MsgBox sMsg, vbOKOnly + vbInformation, "Filter flow and syntax"
+    End Sub
+    
+    Private Sub Command8_Click() Handles Command8.Click
+        SetParent pbOptions.hWnd, Me.hWnd
+        pbOptions.Visible = True
+        Dim dwFrEx As Long
+        dwFrEx = CLng(GetWindowLong(pbOptions.hWnd, GWL_EXSTYLE))
+        dwFrEx = dwFrEx Or WS_EX_DLGMODALFRAME
+        SetWindowLong pbOptions.hWnd, GWL_EXSTYLE, dwFrEx
+
+        SetWindowPos pbOptions.hWnd, 0&, Frame2.Left + 10&, 10&, 0&, 0&, SWP_NOSIZE Or SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_FRAMECHANGED
+    End Sub
+    
+    Private Sub Command9_Click() Handles Command9.Click
+        pbOptions.Visible = False
+    End Sub
+    
+    Private Sub Form_Resize() Handles Form.Resize
+        On Error Resume Next
+        
+        If Form1.Height < 260 Then Form1.Height = 260
+        Text1.Width = Form1.Width - 730& - 15
+
+        Dim rc As RECT
+        GetClientRect Me.hWnd, rc
+
+        SetWindowPos hLVS, 0&, 0&, 0&, rc.Right - 10&, rc.Bottom - 204& * m_ScaleY, SWP_NOMOVE Or SWP_NOZORDER
+    End Sub
+    
+    Private Sub Form_Terminate() Handles Form.Terminate
+        DestroyWindow hLVS
+        If hIconApp Then DestroyIcon hIconApp
+        DeleteCriticalSection oCS
+        DeleteCriticalSection oCS2
+    End Sub
+    
+    Private Sub Form_Unload(Cancel As Integer) Handles Form.Unload
+        If gTraceHandle Then
+            EndTrace gSessionHandle, gTraceHandle
+        End If
+    End Sub
+    
+    Private Sub Text5_KeyPress(KeyAscii As Integer) Handles Text5.KeyPress
+        On Error GoTo Text5_KeyPress_Err
+        If KeyAscii = vbKeyReturn Then
+            tmrRefresh.Interval = CLng(Text5.Text)
+        End If
+        Exit Sub
+
+        Text5_KeyPress_Err:
+            PostLog "Text5_KeyPress.Error->" & Err.Description & ", 0x" & Hex$(Err.Number)
+    End Sub
+    
+    Private Sub Text6_KeyPress(KeyAscii As Integer) Handles Text6.KeyPress
+        On Error GoTo Text6_KeyPress_Err
+        If KeyAscii = vbKeyReturn Then
+            tmrLog.Interval = CLng(Text6.Text)
+        End If
+        Exit Sub
+
+        Text6_KeyPress_Err:
+            PostLog "Text6_KeyPress.Error->" & Err.Description & ", 0x" & Hex$(Err.Number)
+    End Sub
+    
+    Private Sub tmrLog_Timer() Handles tmrLog.Timer
+        SyncLogAndUpdate
+    End Sub
+    
+    Private Sub SyncLogAndUpdate()
+        EnterCriticalSection oCS2
+        sFullLogLocal = sFullLog
+        LeaveCriticalSection oCS2
+        cbLog = LenB(sFullLogLocal)
+        If nLogPos <> cbLog Then
+            Text1.Text = sFullLogLocal
+            nLogPos = cbLog
+            SendMessage Text1.hWnd, EM_SCROLL, SB_BOTTOM, ByVal 0&
+        End If
+    End Sub
+    
+    Public Sub UpdateLog()
+    SyncLogAndUpdate
+    End Sub
+    
+    Private Sub tmrRefresh_Timer() Handles tmrRefresh.Timer
+        SyncRecordsAndUpdate
+    End Sub
+    
+    Private Function MakeTrue( _
+                    ByRef bValue As Boolean) As Boolean
+        MakeTrue = True: bValue = True
+    End Function
+
+    Private Sub SetNumbersOnly(hEdit As LongPtr)
+        'makes an edit control numbers only
+        Dim dwStyle As LongPtr
+
+        dwStyle = GetWindowLong(hEdit, GWL_STYLE)
+        dwStyle = dwStyle Or ES_NUMBER
+        Call SetWindowLong(hEdit, GWL_STYLE, dwStyle)
+    End Sub
+
+    Private Sub MakePushButton(hwnd As LongPtr)
+        Dim dwStyle As LongPtr
+
+        dwStyle = GetWindowLong(hwnd, GWL_STYLE)
+
+        dwStyle = dwStyle Or BS_PUSHLIKE Or BS_NOTIFY
+
+        Call SetWindowLong(hwnd, GWL_STYLE, dwStyle)
+        Call UpdateWindow(hwnd)
+    End Sub
+
+    Private Sub ToggleButtonState(hwnd As LongPtr, lState As Long)
+        Call SendMessage(hwnd, BM_SETSTATE, lState, ByVal 0&)
+    End Sub
+    Private Sub SetFilterOptions()
+    bEventCreate = (Check1.Value = vbChecked)
+    bEventRead = (Check2.Value = vbChecked)
+    bEventWrite = (Check3.Value = vbChecked)
+    bEventDelete = (Check4.Value = vbChecked)
+    bEventRename = (Check5.Value = vbChecked)
+    bEventQuery = (Check6.Value = vbChecked)
+    bEventSetInfo = (Check7.Value = vbChecked)
+    bEventDirEnum = (Check8.Value = vbChecked)
+    bEventFsctl = (Check13.Value = vbChecked)
+    bEventDiskIO = (Check14.Value = vbChecked)
+    bEventNoRundown = (Check9.Value = vbChecked)
+    bUseInitRd = (Check15.Value = vbChecked)
+    bUseEndRd = (Check16.Value = vbChecked)
+    bEnableCSwitch = (Check17.Value = vbChecked)
+    bMergeSameFile = (Check18.Value = vbChecked)
+    bMergeSameCode = (Check19.Value = vbChecked)
+    bSupDIOE = (Check21.Value = vbChecked)
+
+
+    If bEventCreate Or bEventRead Or bEventWrite Or bEventDelete Or bEventQuery Or bEventSetInfo Or bEventRename Or bEventDirEnum Or bEventFsctl Then
+        DiskIOExclusive = False
+    Else
+        DiskIOExclusive = True
+        Check1.Enabled = False
+        Check2.Enabled = False
+        Check3.Enabled = False
+        Check4.Enabled = False
+        Check5.Enabled = False
+        Check6.Enabled = False
+        Check7.Enabled = False
+        Check8.Enabled = False
+        Check13.Enabled = False
+        Check21.Enabled = False
+        PostLog "Note: Running in DiskIO exclusive mode. FileIO events cannot be enabled/disabled while running."
+    End If
+
+    If Option3.Value = True Then
+        ProcInfoNoCache = False
+    ElseIf Option4.Value = True Then
+        ProcInfoNoCache = True
+    ElseIf Option5.Value = True Then
+        If DiskIOExclusive Then
+            ProcInfoNoCache = True
+        Else
+            ProcInfoNoCache = False
+        End If
+    End If
+
+    sFilterPath = Text2.Text
+    sFilterPathExc = Text3.Text
+    sFilterFile = Text7.Text
+    sFilterFileExc = Text8.Text
+    sFilterProc = Text4.Text
+
+    bProcIsInc = (Option2.Value = True)
+    bIgnoreSelf = (Check10.Value = vbChecked)
+    End Sub
+    
+    Private Function LongToDouble(ByVal Lng As Long) As Double
+        If Lng And &H80000000 = 0 Then
+            LongToDouble = CDbl(Lng)
+        Else
+            LongToDouble = (Lng Xor &H80000000) + (2 ^ 31)
+        End If
+    End Function
+
+    Private Function IsProcessElevated() As Boolean
+        Dim hToken As LongPtr
+
+        If OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, hToken) = 0 Then Exit Function
+        
+        Dim tElv As TOKEN_ELEVATION
+        Dim dwSize As Long
+        If GetTokenInformation(hToken, TokenElevation, tElv, Len(tElv), dwSize) = 0 Then
+            PostLog "Error getting token information."
+        End If
+
+        If tElv.TokenIsElevated Then IsProcessElevated = True
+
+        If hToken Then CloseHandle hToken
+    End Function
+ 
+    Private Sub SyncRecordsAndUpdate()
+    'Synchronize data with the ActivityLog
+    'This involves accessing the log and counter the other thread
+    'is constantly accessing, so we need a critical section to enforce
+    'this thread having exclusive access while it synchronizes the
+    'main activity log to the copy we use for displaying the data.
+    On Error GoTo e0
+    EnterCriticalSection oCS
+    If nAcEv Then
+        If nAcEv <> nDspAc Then
+            Dim i As Long, start As Long
+            start = UBound(DispActLog)
+            ReDim Preserve DispActLog(UBound(ActivityLog))
+            For i = 0& To (start - 1&) 'Sync updatables
+                DispActLog(i).sProcess = ActivityLog(i).sProcess
+                DispActLog(i).sCmdLine = ActivityLog(i).sCmdLine
+                DispActLog(i).intProcId = ActivityLog(i).intProcId
+                DispActLog(i).intProcPath = ActivityLog(i).intProcPath
+                DispActLog(i).cRead = ActivityLog(i).cRead
+                DispActLog(i).cWrite = ActivityLog(i).cWrite
+                DispActLog(i).OpenCount = ActivityLog(i).OpenCount
+                DispActLog(i).DeleteCount = ActivityLog(i).DeleteCount
+                DispActLog(i).dtMod = ActivityLog(i).dtMod
+                If CompareMemory(DispActLog(i), ActivityLog(i), cbALCompRgn) = cbALCompRgn Then
+                    DispActLog(i).bChanged = True
+                Else
+                    DispActLog(i).bChanged = False
+                End If
+            Next i
+            For i = start To (UBound(ActivityLog))
+                DispActLog(i) = ActivityLog(i)
+            Next i
+            nDspAc = nAcEv
+        End If
+    End If
+    LeaveCriticalSection oCS
+    'We're now done with data the other thread is using.
+    On Error GoTo e1
+    If nDspAc <> nCurCt Then
+        ListView_SetItemCount hLVS, nDspAc
+        If bScrBtm Then ListView_EnsureVisible hLVS, nDspAc - 1&, 0& 'If we're scrolled to the bottom, keep it there
+                                                                    'Otherwise, the user has scrolled up to look at something, leave the view alone
+        nCurCt = nDspAc
+    Else
+        'No change in items, but RW totals may have changed, so we want redraws anyway
+        ListView_RedrawItems hLVS, 0&, nDspAc
+        UpdateWindow hLVS
+    End If
+    Exit Sub
+    e0:
+    LeaveCriticalSection oCS
+    PostLog "RefreshError nAcEv=" & nAcEv & ",nDspAc=" & nDspAc
+    Exit Sub
+    e1:
+    PostLog "RefreshNonCritError"
+    End Sub
+
+    Private Function CreateListView(hWndParent As LongPtr, idd As Long, dwStyle As Long, dwExStyle As Long, x As Long, y As Long, CX As Long, CY As Long) As LongPtr
+    
+    Dim hwndLV As LongPtr
+    hwndLV = CreateWindowEx(dwExStyle, StrPtr(WC_LISTVIEW), 0, dwStyle, x, y, CX, CY, hWndParent, idd, App.hInstance, 0)
+    Subclass2 hwndLV, AddressOf LVSWndProc, hwndLV
+    
+    CreateListView = hwndLV
+    End Function
+    Private Sub InitLV()
+    Dim dwStyle As Long, dwStyle2 As Long
+    Dim i As Long
+    Dim rc As RECT
+    GetClientRect Me.hWnd, rc
+    
+    hLVS = CreateListView(Me.hWnd, IDD_LISTVIEW, _
+                        LVS_REPORT Or LVS_SHAREIMAGELISTS Or LVS_SHOWSELALWAYS Or LVS_ALIGNTOP Or LVS_OWNERDATA Or _
+                        WS_VISIBLE Or WS_CHILD Or WS_CLIPSIBLINGS Or WS_CLIPCHILDREN, WS_EX_CLIENTEDGE, 5&, 196& * m_ScaleY, rc.Right - 10&, rc.Bottom - 204& * m_ScaleY)
+
+
+    dwStyle2 = CLng(GetWindowLong(hLVS, GWL_STYLE))
+    If ((dwStyle2 And LVS_SHAREIMAGELISTS) = False) Then
+        Call SetWindowLong(hLVS, GWL_STYLE, dwStyle2 Or LVS_SHAREIMAGELISTS)
+    End If
+
+    Dim dwStyleEx As LVStylesEx
+    dwStyleEx = LVS_EX_JUSTIFYCOLUMNS Or LVS_EX_DOUBLEBUFFER Or LVS_EX_FULLROWSELECT Or LVS_EX_LABELTIP Or LVS_EX_HEADERDRAGDROP
+    Call SendMessage(hLVS, LVM_SETEXTENDEDLISTVIEWSTYLE, 0&, ByVal dwStyleEx)
+
+    Shell_GetImageLists himlSys32, himlSys16
+    Call ListView_SetImageList(hLVS, himlSys16, LVSIL_SMALL)
+
+    Dim swt1 As String
+    Dim swt2 As String
+    swt1 = "explorer"
+    swt2 = ""
+    Call SetWindowTheme(hLVS, StrPtr(swt1), 0&)
+
+    Dim lvcol As LVCOLUMNW
+    Dim HDI As HDITEMW
+    hLVSHdr = SendMessage(hLVS, LVM_GETHEADER, 0&, ByVal 0&)
+    
+    lvcol.Mask = LVCF_TEXT Or LVCF_WIDTH
+    lvcol.CX = 140
+    lvcol.cchTextMax = Len(sCol0) + 1
+    lvcol.pszText = StrPtr(sCol0)
+    Call SendMessage(hLVS, LVM_INSERTCOLUMNW, 0&, lvcol)
+    HDI.Mask = HDI_LPARAM
+    HDI.lParam = 0
+    Call SendMessage(hLVSHdr, HDM_SETITEMW, 0, HDI)
+    
+    lvcol.Mask = LVCF_TEXT Or LVCF_WIDTH
+    lvcol.CX = 125
+    lvcol.cchTextMax = Len(sCol1) + 1
+    lvcol.pszText = StrPtr(sCol1)
+    Call SendMessage(hLVS, LVM_INSERTCOLUMNW, 1&, lvcol)
+    HDI.Mask = HDI_LPARAM
+    HDI.lParam = 1
+    Call SendMessage(hLVSHdr, HDM_SETITEMW, 1, HDI)
+    
+    lvcol.Mask = LVCF_TEXT Or LVCF_WIDTH
+    lvcol.CX = 500
+    lvcol.cchTextMax = Len(sCol2) + 1
+    lvcol.pszText = StrPtr(sCol2)
+    Call SendMessage(hLVS, LVM_INSERTCOLUMNW, 2&, lvcol)
+    HDI.Mask = HDI_LPARAM
+    HDI.lParam = 2
+    Call SendMessage(hLVSHdr, HDM_SETITEMW, 2, HDI)
+    
+    lvcol.Mask = LVCF_TEXT Or LVCF_WIDTH
+    lvcol.CX = 60
+    lvcol.cchTextMax = Len(sCol3) + 1
+    lvcol.pszText = StrPtr(sCol3)
+    Call SendMessage(hLVS, LVM_INSERTCOLUMNW, 3&, lvcol)
+    HDI.Mask = HDI_LPARAM
+    HDI.lParam = 3
+    Call SendMessage(hLVSHdr, HDM_SETITEMW, 3, HDI)
+    
+    lvcol.Mask = LVCF_TEXT Or LVCF_WIDTH
+    lvcol.CX = 60
+    lvcol.cchTextMax = Len(sCol4) + 1
+    lvcol.pszText = StrPtr(sCol4)
+    Call SendMessage(hLVS, LVM_INSERTCOLUMNW, 4&, lvcol)
+    HDI.Mask = HDI_LPARAM
+    HDI.lParam = 4
+    Call SendMessage(hLVSHdr, HDM_SETITEMW, 4, HDI)
+    
+    lvcol.Mask = LVCF_TEXT Or LVCF_WIDTH
+    lvcol.CX = 140
+    lvcol.cchTextMax = Len(sCol5) + 1
+    lvcol.pszText = StrPtr(sCol5)
+    Call SendMessage(hLVS, LVM_INSERTCOLUMNW, 5&, lvcol)
+    HDI.Mask = HDI_LPARAM
+    HDI.lParam = 5
+    Call SendMessage(hLVSHdr, HDM_SETITEMW, 5, HDI)
+    
+    lvcol.Mask = LVCF_TEXT Or LVCF_WIDTH
+    lvcol.CX = 140
+    lvcol.cchTextMax = Len(sCol6) + 1
+    lvcol.pszText = StrPtr(sCol6)
+    Call SendMessage(hLVS, LVM_INSERTCOLUMNW, 6&, lvcol)
+    HDI.Mask = HDI_LPARAM
+    HDI.lParam = 6
+    Call SendMessage(hLVSHdr, HDM_SETITEMW, 6, HDI)
+    
+    lvcol.Mask = LVCF_TEXT Or LVCF_WIDTH
+    lvcol.CX = 180
+    lvcol.cchTextMax = Len(sCol7) + 1
+    lvcol.pszText = StrPtr(sCol7)
+    Call SendMessage(hLVS, LVM_INSERTCOLUMNW, 7&, lvcol)
+    HDI.Mask = HDI_LPARAM
+    HDI.lParam = 7
+    Call SendMessage(hLVSHdr, HDM_SETITEMW, 7, HDI)
+    
+    If Check20.Value = vbChecked Then
+        AddMergeCols
+        bMergeColVis = True
+    End If
+
+    clrDefBk = CLng(SendMessage(hLVS, LVM_GETBKCOLOR, 0&, ByVal 0&))
+
+    End Sub
+
+    Private Sub AddMergeCols()
+    Dim lvcol As LVCOLUMNW
+    Dim HDI As HDITEMW
+    
+    lvcol.Mask = LVCF_TEXT Or LVCF_WIDTH
+    lvcol.CX = 70
+    lvcol.cchTextMax = Len(sCol8) + 1
+    lvcol.pszText = StrPtr(sCol8)
+    Call SendMessage(hLVS, LVM_INSERTCOLUMNW, 8&, lvcol)
+    HDI.Mask = HDI_LPARAM
+    HDI.lParam = 8
+    Call SendMessage(hLVSHdr, HDM_SETITEMW, 8, HDI)
+        
+    lvcol.Mask = LVCF_TEXT Or LVCF_WIDTH
+    lvcol.CX = 60
+    lvcol.cchTextMax = Len(sCol9) + 1
+    lvcol.pszText = StrPtr(sCol9)
+    Call SendMessage(hLVS, LVM_INSERTCOLUMNW, 9&, lvcol)
+    HDI.Mask = HDI_LPARAM
+    HDI.lParam = 9
+    Call SendMessage(hLVSHdr, HDM_SETITEMW, 9, HDI)
+    
+    End Sub
+
+    Private Sub AddCmdLineCol()
+    Dim lvcol As LVCOLUMNW
+    Dim HDI As HDITEMW
+    Dim lColCnt As Long
+    lvcol.Mask = LVCF_TEXT Or LVCF_WIDTH
+    lvcol.CX = 280
+    lvcol.cchTextMax = Len(sCol10) + 1
+    lvcol.pszText = StrPtr(sCol10)
+    Call SendMessage(hLVS, LVM_INSERTCOLUMNW, 10&, lvcol)
+    HDI.Mask = HDI_LPARAM
+    HDI.lParam = 10
+    lColCnt = Header_GetItemCount(hLVSHdr)
+    Call SendMessage(hLVSHdr, HDM_SETITEMW, lColCnt - 1, HDI)
+    
+    bCmdLineColVis = True
+    End Sub
+    
+    Private Sub RemoveCmdLineCol()
+    'OpCount columns may or may not be present, so we need a more thorugh index check
+    If bMergeColVis Then
+        Call SendMessage(hLVS, LVM_DELETECOLUMN, 10&, ByVal 0&)
+    Else
+        Call SendMessage(hLVS, LVM_DELETECOLUMN, 8&, ByVal 0&)
+    End If
+    
+    bCmdLineColVis = False
+    End Sub
+    
+    Private Function AdjustPrivileges() As Boolean
+    Dim hToken As LongPtr
+    Dim lRet As Long
+    lRet = OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES Or TOKEN_QUERY, hToken)
+    If lRet Then
+        PostLog "AdjustPrivileges::Got process token."
+        
+        If SetPrivilege(hToken, SE_SYSTEM_PROFILE_NAME, True) Then
+            AdjustPrivileges = True
+            PostLog "AdjustPrivileges::Enabled system profile privilege."
+        Else
+            PostLog "AdjustPrivileges::Failed to enable system profile privilege."
+        End If
+        
+        CloseHandle hToken
+    Else
+        PostLog "AdjustPrivileges::Failed to open process token."
+    End If
+    End Function
+
+    Private Function EnableDebugPrivilege() As Boolean
+    Dim hToken As LongPtr
+    Dim lRet As Long
+    lRet = OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES Or TOKEN_QUERY, hToken)
+    If lRet Then
+    
+        PostLog "AdjustPrivileges::Got process token."
+        
+        If SetPrivilege(hToken, SE_DEBUG_NAME, True) Then
+            EnableDebugPrivilege = True
+            bDbgPriv = True
+            PostLog "AdjustPrivileges::Enabled debug privilege."
+        Else
+            PostLog "AdjustPrivileges::Failed to enable debug privilege."
+        End If
+        
+        CloseHandle hToken
+    Else
+        PostLog "AdjustPrivileges::Failed to open process token."
+    End If
+    End Function
+    Private Function SetPrivilege(hToken As LongPtr, ByVal sPriv As String, ByVal bEnable As Boolean) As Boolean
+    Dim tLUID As LUID
+    Dim tTP As TOKEN_PRIVILEGES
+    Dim tTPprv As TOKEN_PRIVILEGES
+    Dim cb As Long
+    Dim lRet As Long
+    Dim lastErr As Long
+    SetPrivilege = False
+
+    If LookupPrivilegeValueW(0&, StrPtr(sPriv), tLUID) = 0 Then
+    lastErr = Err.LastDllError
+    PostLog "SetPrivilege::LookupPrivilegeValue failed. LastDllError=" & GetErrorName(lastErr) & " (0x" & Hex$(lastErr) & ")"
+    Exit Function
+    End If
+
+    With tTP
+    .PrivilegeCount = 1
+    .Privileges(0).pLuid = tLUID
+    If bEnable Then
+        .Privileges(0).Attributes = SE_PRIVILEGE_ENABLED
+    Else
+        .Privileges(0).Attributes = 0
+    End If
+    End With
+
+    lRet = AdjustTokenPrivileges(hToken, False, tTP, Len(tTPprv), tTPprv, cb)
+    lastErr = Err.LastDllError
+    If lastErr = 0 Then
+    SetPrivilege = True
+    Else
+    PostLog "SetPrivilege::Error code=" & GetErrorName(lastErr) & " (0x" & Hex$(Err.LastDllError) & "), return=0x" & Hex$(lRet)
+    End If
+    End Function
+
+    Private Sub GenerateTestData()
+    Dim stTime As SYSTEMTIME
+    GetLocalTime stTime
+    PostLog "TestDataTime=" & FormatTime(stTime)
+    ReDim ActivityLog(5)
+    With ActivityLog(0)
+        .sFile = "C:\dir1\file1.txt"
+        .iType = atFileCreate
+        .sProcess = "chrome.exe"
+        .intProcPath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+        .iIcon = 2 'GetFileIconIndex("C:\procexp.exe", SHGFI_SMALLICON)
+        .dtStart = stTime
+        .cRead = 4096
+    End With
+    With ActivityLog(1)
+        .sFile = "C:\dir1\file2.txt"
+        .iType = atFileCreate
+        .sProcess = "explorer.exe"
+        .intProcPath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+        .iIcon = 2
+        .dtStart = stTime
+        .cRead = 16461824
+    End With
+    With ActivityLog(2)
+        .sFile = "C:\dir2\file1.txt"
+        .iType = atFileCreate
+        .sProcess = "VB6.exe"
+        .intProcPath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+        .iIcon = 2
+        .dtStart = stTime
+        '.cRead = 19283968
+    End With
+    With ActivityLog(3)
+        .sFile = "C:\dir2\file2.txt"
+        .iType = atFileCreate
+        .sProcess = "Notepad.exe"
+        .intProcPath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+        .iIcon = 2
+        .dtStart = stTime
+        '.cWrite = 20480
+    End With
+    With ActivityLog(4)
+        .sFile = "C:\dir3\file1.txt"
+        .iType = atFileCreate
+        .sProcess = "calc.exe"
+        .intProcPath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+        .iIcon = 2
+        .dtStart = stTime
+    End With
+    With ActivityLog(5)
+        .sFile = "C:\dir3\file2.txt"
+        .iType = atFileDelete
+        .sProcess = "firefox.exe"
+        .intProcPath = "C:\addd.exe"
+        .iIcon = 2
+        .dtStart = stTime
+    End With
+    nAcEv = 6
+    End Sub
+
+    Private Sub OpenFolders(sFiles() As String, Optional bRename As Boolean = False)
+
+    If sFiles(0) = "" Then Exit Sub 'caller is responsible for ensuring array has been dim'd and contains valid info
+
+    Dim tRes() As ResultFolder
+    Dim apidl() As LongPtr
+    Dim ppidl As LongPtr
+    Dim pidlFQ() As LongPtr
+    Dim i As Long, j As Long
+
+    GetResultsByFolder sFiles, tRes
+
+    'Now each entry in tRes is a folder, and its .sFiles member contains every file
+    'in the original list that is in that folder. So for every folder, we now need to
+    'create a pidl for the folder itself, and an array of all the relative pidls for the
+    'files. Two helper APIs replace what used to be tons of pidl-related support
+    'code before XP. After we've got the pidls, they're handed off to the API
+    For i = 0 To UBound(tRes)
+        ReDim apidl(UBound(tRes(i).sFiles))
+        ReDim pidlFQ(UBound(tRes(i).sFiles))
+        For j = 0 To UBound(tRes(i).sFiles)
+            pidlFQ(j) = ILCreateFromPathW(StrPtr(tRes(i).sFiles(j))) 'ILCreateFromPathW gives us Unicode support
+            apidl(j) = ILFindLastID(pidlFQ(j))
+        Next
+        ppidl = ILCreateFromPathW(StrPtr(tRes(i).sPath))
+
+        Dim dwFlag As Long
+        If bRename Then
+            dwFlag = OFASI_EDIT
+        End If
+        Call SHOpenFolderAndSelectItems(ppidl, UBound(apidl) + 1, VarPtr(apidl(0)), dwFlag)
+        'Vista+ has the dwFlags to start renaming (single file) or select on desktop; there's no valid flags on XP
+
+        'now we need to free all the pidls we created, otherwise it's a memory leak
+        CoTaskMemFree ppidl
+        For j = 0 To UBound(pidlFQ)
+            CoTaskMemFree pidlFQ(j) 'per MSDN, child ids obtained w/ ILFindLastID don't need ILFree, so just free FQ
+        Next
+    Next
+            
+    End Sub
+
+    Private Sub GetResultsByFolder(sSelFullPath() As String, tResFolders() As ResultFolder)
+    Dim i As Long
+    Dim sPar As String
+    Dim k As Long, cn As Long, fc As Long
+    ReDim tResFolders(0)
+
+    For i = 0 To UBound(sSelFullPath)
+        sPar = Left$(sSelFullPath(i), InStrRev(sSelFullPath(i), "\") - 1)
+        k = RFExists(sPar, tResFolders)
+        If k >= 0 Then 'there's already a file in this folder, so just add a new file to the folders list
+            cn = UBound(tResFolders(k).sFiles)
+            cn = cn + 1
+            ReDim Preserve tResFolders(k).sFiles(cn)
+            tResFolders(k).sFiles(cn) = sSelFullPath(i)
+        Else 'create a new folder entry
+            ReDim Preserve tResFolders(fc)
+            ReDim tResFolders(fc).sFiles(0)
+            tResFolders(fc).sPath = sPar
+            tResFolders(fc).sFiles(0) = sSelFullPath(i)
+            fc = fc + 1
+        End If
+    Next
+    End Sub
+
+    Private Function RFExists(sPath As String, tResFolders() As ResultFolder) As Long
+    Dim i As Long
+    For i = 0 To UBound(tResFolders)
+        If tResFolders(i).sPath = sPath Then
+            RFExists = i
+            Exit Function
+        End If
+    Next
+    RFExists = -1
+    End Function
+
+    Private Sub SaveFileActivity()
+    Dim sWrite As String
+    Dim sPat As String
+
+    sPat = "Text File (*.txt)|*.txt" & vbNullChar & "All (*.*)| *.*" & vbNullChar & vbNullChar
+
+    If GetSaveName(sWrite, , , sPat, , App.Path, "Save activity log", ".txt", Me.hWnd) Then
+        Dim sCpy() As String
+        Dim cn As Long
+        Dim sOut As String
+        Dim i As Long
+        cn = 0
+        For i = 0& To UBound(DispActLog)
+            ReDim Preserve sCpy(cn)
+            sCpy(cn) = ItemString(i)
+            Debug.Print sCpy(cn)
+            cn = cn + 1
+        Next i
+        sOut = Join(sCpy, vbCrLf)
+        
+        WriteStrToFile sOut, sWrite
+    End If
+
+
+    End Sub
+    Private Sub WriteStrToFile(sIn As String, szFile As String, Optional bAppend As Boolean = False)
+    'Simple function to write a single string to file as-is
+    Dim hFile As LongPtr
+    Dim RetVal As Long
+    Dim lngBytesWritten As Long
+
+    If Not bAppend Then
+        hFile = CreateFileW(StrPtr(szFile), GENERIC_WRITE, FILE_SHARE_READ, _
+                    ByVal 0&, CREATE_ALWAYS, FILE_ATTRIBUTE_ARCHIVE, 0&)
+    
+        If hFile = -1 Then PostLog "ERROR: Logfile could not be opened for writing."
+    Else
+        'open the file for appending
+        hFile = CreateFileW(StrPtr(szFile), GENERIC_WRITE, FILE_SHARE_READ, _
+                    ByVal 0&, OPEN_ALWAYS, FILE_ATTRIBUTE_ARCHIVE, 0&)
+        
+        If hFile = -1 Then PostLog "ERROR: Logfile could not be opened for writing."
+    End If
+    If hFile Then
+        'we need to move to EOF
+        RetVal = SetFilePointer(hFile, 0&, 0&, FILE_END)
+        RetVal = WriteFile(hFile, ByVal sIn, Len(sIn), lngBytesWritten, ByVal 0&)
+        RetVal = CloseHandle(hFile)
+    End If
+    End Sub
+
+    Public Sub ShowLVMenu()
+
+    On Error GoTo ShowLVMenu_Err
+
+    Dim mii As MENUITEMINFOW
+    Dim hMenu As LongPtr
+    Dim ptCur As POINTAPI
+    Dim idCmd As Long
+
+    hMenu = CreatePopupMenu()
+
+    With mii
+        .cbSize = LenB(mii)
+        .fMask = MIIM_ID Or MIIM_STRING Or MIIM_STATE
+        .wID = widOpen
+        .dwTypeData = StrPtr(mnOpen)
+        .cch = Len(mnOpen)
+        If nAcEv = 0& Then .fState = MFS_DISABLED
+        Call InsertMenuItemW(hMenu, 0&, True, mii)
+        
+        .fMask = MIIM_ID Or MIIM_STRING Or MIIM_STATE
+        .wID = widShow
+        .dwTypeData = StrPtr(mnShow)
+        .cch = Len(mnShow)
+        If nAcEv = 0& Then .fState = MFS_DISABLED
+        Call InsertMenuItemW(hMenu, 1&, True, mii)
+        
+        .fMask = MIIM_ID Or MIIM_STRING Or MIIM_STATE
+        .wID = widProcProp
+        .dwTypeData = StrPtr(mnProcProp)
+        .cch = Len(mnProcProp)
+        If nAcEv = 0& Then .fState = MFS_DISABLED
+        Call InsertMenuItemW(hMenu, 2&, True, mii)
+        
+        .fMask = MIIM_ID Or MIIM_STRING Or MIIM_STATE
+        .wID = widProcOpen
+        .dwTypeData = StrPtr(mnProcOpen)
+        .cch = Len(mnProcOpen)
+        If nAcEv = 0& Then .fState = MFS_DISABLED
+        Call InsertMenuItemW(hMenu, 3&, True, mii)
+        
+        .fMask = MIIM_ID Or MIIM_STRING Or MIIM_STATE
+        .wID = widCopySel
+        .dwTypeData = StrPtr(mnCopySel)
+        .cch = Len(mnCopySel)
+        If nAcEv = 0& Then .fState = MFS_DISABLED
+        Call InsertMenuItemW(hMenu, 4&, True, mii)
+        
+        .fMask = MIIM_ID Or MIIM_STRING Or MIIM_STATE
+        .wID = widCopyAll
+        .dwTypeData = StrPtr(mnCopyAll)
+        .cch = Len(mnCopyAll)
+        If nAcEv = 0& Then .fState = MFS_DISABLED
+        Call InsertMenuItemW(hMenu, 5&, True, mii)
+        
+        .fMask = MIIM_ID Or MIIM_STRING Or MIIM_STATE
+        .wID = widCopySelLn
+        .dwTypeData = StrPtr(mnCopySelLn)
+        .cch = Len(mnCopySelLn)
+        If nAcEv = 0& Then .fState = MFS_DISABLED
+        Call InsertMenuItemW(hMenu, 6&, True, mii)
+        
+        .fMask = MIIM_ID Or MIIM_STRING Or MIIM_STATE
+        .wID = widCopyAllLn
+        .dwTypeData = StrPtr(mnCopyAllLn)
+        .cch = Len(mnCopyAllLn)
+        If nAcEv = 0& Then .fState = MFS_DISABLED
+        Call InsertMenuItemW(hMenu, 7&, True, mii)
+        
+        
+    End With
+
+    Call GetCursorPos(ptCur)
+
+    idCmd = TrackPopupMenu(hMenu, TPM_LEFTBUTTON Or TPM_RIGHTBUTTON Or TPM_LEFTALIGN Or TPM_TOPALIGN Or TPM_HORIZONTAL Or TPM_RETURNCMD, ptCur.X, ptCur.Y, 0, hLVS, 0)
+
+    Dim i As Long, cn As Long
+    Dim sCpy() As String
+    If idCmd Then
+        Select Case idCmd
+            Case widOpen
+                i = LVI_NOITEM
+                Do
+                    i = CLng(SendMessage(hLVS, LVM_GETNEXTITEM, i, ByVal LVNI_SELECTED))
+                    If (i <> LVI_NOITEM) Then
+                        Dim sei As SHELLEXECUTEINFO
+                        With sei
+                            .cbSize = LenB(sei)
+                            .fMask = SEE_MASK_UNICODE
+                            .lpFile = DispActLog(i).sFile
+                            .lpVerb = StrPtr("open")
+                            .hWnd = hLVS
+                            .nShow = SW_SHOWNORMAL
+                        End With
+                        Call ShellExecuteExW(sei)
+                    End If
+                Loop Until (i = LVI_NOITEM)
+            
+            Case widShow
+                Dim sShow() As String
+                i = LVI_NOITEM
+                Do
+                    i = CLng(SendMessage(hLVS, LVM_GETNEXTITEM, i, ByVal LVNI_SELECTED))
+                    If (i <> LVI_NOITEM) Then
+                        ReDim Preserve sShow(cn)
+                        sShow(cn) = DispActLog(i).sFile
+                        cn = cn + 1
+                    End If
+                Loop Until (i = LVI_NOITEM)
+                
+                OpenFolders sShow
+                
+            Case widProcProp
+                i = CLng(ListView_GetSelectedItem(hLVS))
+                Dim seip As SHELLEXECUTEINFO
+                With seip
+                    .cbSize = LenB(sei)
+                    .fMask = SEE_MASK_UNICODE
+                    .lpFile = DispActLog(i).sFile
+                    .lpVerb = StrPtr("properties")
+                    .hWnd = hLVS
+                    .nShow = SW_SHOWNORMAL
+                End With
+                Call ShellExecuteExW(seip)
+            
+            Case widProcOpen
+                Dim pidl As LongPtr
+                i = CLng(ListView_GetSelectedItem(hLVS))
+                If DispActLog(i).intProcId <> -1& Then
+                    pidl = ILCreateFromPathW(DispActLog(i).intProcPath)
+                    If pidl Then
+                        Call SHOpenFolderAndSelectItems(VarPtr(0&), 1&, VarPtr(pidl), 0&)
+                        CoTaskMemFree pidl
+                    Else
+                        PostLog "Couldn't find process."
+                    End If
+                Else
+                    PostLog "Invalid process specified."
+                End If
+                
+            Case widCopySel
+                i = LVI_NOITEM
+                Do
+                    i = CLng(SendMessage(hLVS, LVM_GETNEXTITEM, i, ByVal LVNI_SELECTED))
+                    If (i <> LVI_NOITEM) Then
+                        ReDim Preserve sCpy(cn)
+                        sCpy(cn) = DispActLog(i).sFile
+                        cn = cn + 1
+                    End If
+                Loop Until (i = LVI_NOITEM)
+                Clipboard.Clear
+                Clipboard.SetText Join(sCpy, vbCrLf)
+                
+            Case widCopyAll
+                For i = 0& To UBound(DispActLog)
+                    ReDim Preserve sCpy(cn)
+                    sCpy(cn) = DispActLog(i).sFile
+                    cn = cn + 1
+                Next i
+                Clipboard.Clear
+                Clipboard.SetText Join(sCpy, vbCrLf)
+                
+            Case widCopySelLn
+                i = LVI_NOITEM
+                Do
+                    i = CLng(SendMessage(hLVS, LVM_GETNEXTITEM, i, ByVal LVNI_SELECTED))
+                    If (i <> LVI_NOITEM) Then
+                        ReDim Preserve sCpy(cn)
+                        sCpy(cn) = ItemString(i)
+                        cn = cn + 1
+                    End If
+                Loop Until (i = LVI_NOITEM)
+                Clipboard.Clear
+                Clipboard.SetText Join(sCpy, vbCrLf)
+            
+            Case widCopyAllLn
+                For i = 0& To UBound(DispActLog)
+                    ReDim Preserve sCpy(cn)
+                    sCpy(cn) = ItemString(i)
+                    cn = cn + 1
+                Next i
+                Clipboard.Clear
+                Clipboard.SetText Join(sCpy, vbCrLf)
+        End Select
+    End If
+
+ 
+    Exit Sub
+
+    ShowLVMenu_Err:
+        PostLog "ShowLVMenu.Error->" & Err.Description & ", 0x" & Hex$(Err.Number)
+
+    End Sub
+
+
+    ' Private Function SystemTimeToDate(st As SYSTEMTIME) As Date
+    ' SystemTimeToDate = DateSerial(st.wYear, st.wMonth, st.wDay) + TimeSerial(st.wHour, st.wMinute, st.wSecond)
+    ' End Function
+    ' Private Function FormatTime(syst As SYSTEMTIME) As String
+    ' If syst.wYear = 0 Then
+    '     FormatTime = vbNullString
+    '     Exit Function
+    ' End If
+    ' Dim dt As Date
+    ' dt = SystemTimeToDate(syst)
+    ' FormatTime = Format$(dt, dtFormat) '& "." & Format$("###", syst.wMilliseconds)
+    ' End Function
+
+    Private Function ItemString(i As Long) As String
+    Dim sOut As String
+
+    sOut = DispActLog(i).sProcess & vbTab
+    Select Case DispActLog(i).iType
+        Case atFileCreate: sOut = sOut & "Open/Create:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atFileAccess: sOut = sOut & "DiskIO:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atFileQuery: sOut = sOut & "DeleteFile:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atFileDelete: sOut = sOut & "RenameFile:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atFileRename: sOut = sOut & "QueryFile:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atFileSetInfo: sOut = sOut & "SetFileInfo:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atDirEnum: sOut = sOut & "DirEnum:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atDirChange: sOut = sOut & "DirChange:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atDirDel: sOut = sOut & "DeleteDir:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atDirRename: sOut = sOut & "RenameDir:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atDirSetLink: sOut = sOut & "SetLinkDir:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atDirNotify: sOut = sOut & "DirNotify:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atFileFsctl: sOut = sOut & "FSCTL:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atRundown: sOut = sOut & "Rundown:" & CStr(DispActLog(i).iCode) & vbTab
+        Case atOpenFileRW: sOut = sOut & "OpenFileRW:" & CStr(DispActLog(i).iCode) & vbTab
+    End Select
+    sOut = sOut & DispActLog(i).sFile & vbTab
+    sOut = sOut & FormatSize(DispActLog(i).cRead) & vbTab
+    sOut = sOut & FormatSize(DispActLog(i).cWrite) & vbTab
+    sOut = sOut & FormatTime(DispActLog(i).dtStart) & vbTab
+    sOut = sOut & FormatTime(DispActLog(i).dtMod) & vbTab
+    sOut = sOut & DispActLog(i).sMisc
+    If bMergeColVis Then
+        sOut = sOut & vbTab
+        sOut = sOut & DispActLog(i).OpenCount & vbTab
+        sOut = sOut & DispActLog(i).DeleteCount
+    End If
+    ItemString = sOut
+    End Function
+
+    Private Sub dbgitemstr(i As Long)
+        Dim sl As String, slb As String, slbt As String
+        Dim c As Long
+        Dim bt() As Byte
+        If DispActLog(i).iCode = 72 Then
+            sl = Len(DispActLog(i).sMisc)
+            slb = LenB(DispActLog(i).sMisc)
+            bt = DispActLog(i).sMisc
+            For c = 0 To UBound(bt)
+                slbt = slbt & Hex$(bt(c)) & ","
+            Next
+
+        Else
+            sl = Len(DispActLog(i).sFile)
+            slb = LenB(DispActLog(i).sFile)
+            bt = DispActLog(i).sFile
+            For c = 0 To UBound(bt)
+                slbt = slbt & Hex$(bt(c)) & ","
+            Next
+        End If
+        MsgBox "Len=" & sl & ",LenB=" & slb & ",ub=" & UBound(bt) & vbCrLf & "dump=" & slbt
+    End Sub
+
+
+    Private Sub ReadWindowsVersion()
+    'GetVersion[Ex] does not work with Win8 and above, so we'll go by kernel32 version
+    'GetFileVersionInfo does not work with some versions of Win10 and above.
+
+    Dim hMod As LongPtr
+    Dim hRes As LongPtr
+
+    hMod = LoadLibraryW(StrPtr("kernel32.dll"))
+    If hMod Then
+        hRes = FindResourceW(hMod, StrPtr("#1"), RT_VERSION)
+        If hRes Then
+            Dim hGbl As LongPtr
+            hGbl = LoadResource(hMod, hRes)
+            If (hGbl) Then
+                Dim lpRes As LongPtr
+                lpRes = LockResource(hGbl)
+                If lpRes Then
+                    Dim tVerInfo As VS_VERSIONINFO_FIXED_PORTION
+                    CopyMemory tVerInfo, ByVal lpRes, Len(tVerInfo)
+                    If tVerInfo.Value.dwFileVersionMSh >= 6& Then
+                        bIsWinVistaOrGreater = True
+                        If tVerInfo.Value.dwFileVersionMSl >= 1& Then bIsWin7OrGreater = True
+                        If tVerInfo.Value.dwFileVersionMSl >= 2& Then bIsWin8OrGreater = True: bIsWin7OrGreater = True
+                        If (tVerInfo.Value.dwFileVersionMSl = 4&) Or (tVerInfo.Value.dwFileVersionMSh >= 10&) Then
+                            bIsWin7OrGreater = True
+                            bIsWin8OrGreater = True
+                            bIsWin10OrGreater = True
+                        End If
+                    End If
+                End If
+            End If
+        End If
+        FreeLibrary hMod
+    End If
+    End Sub
+    Private Function MAKEINTRESOURCE(ByVal dwVal As Long) As Long
+    MAKEINTRESOURCE = &HFFFF& And dwVal
+    End Function
+    
+    Private Sub pbOptions_MouseMove(Button As Integer, Shift As Integer, X As Single, Y As Single) Handles pbOptions.MouseMove
+        If Button = 1 Then
+            Call ReleaseCapture
+            Call SendMessage(pbOptions.hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0&)
+        End If
+    End Sub
+    
+    Private Sub lblOpts_MouseMove(Button As Integer, Shift As Integer, X As Single, Y As Single) Handles lblOpts.MouseMove
+        If Button = 1 Then
+            Call ReleaseCapture
+            Call SendMessage(pbOptions.hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0&)
+        End If
+    End Sub
+
+Private Sub TestFmt()
+    Dim stTime As SYSTEMTIME
+    GetLocalTime stTime
+    Debug.Print FormatTime(stTime)
+    Debug.Print FormatSize(CLngLng(32768))
+    PostLog "TestFmtTime=" & FormatTime(stTime)
+End Sub
+
+Private Function FormatSize(crSz As LongLong) As String
+If crSz = 0 Then
+    FormatSize = vbNullString
+Else
+    FormatSize = FormatFileSizeCurExB(crSz, False, sSizeFmt_byte, False, sSizeFmt_kb, _
+                                                       False, sSizeFmt_mb, False, sSizeFmt_gb, False, sSizeFmt_tb, False, sSizeFmt_pb)
+End If
+End Function
+Private Function FormatFileSizeCurExB(curB As LongLong, _
+                                        bNoBytes As Boolean, sByteFmt As String, _
+                                        bNoKilo As Boolean, sKiloFmt As String, _
+                                        bNoMega As Boolean, sMegaFmt As String, _
+                                        bNoGiga As Boolean, sGigaFmt As String, _
+                                        bNoTera As Boolean, sTeraFmt As String, _
+                                        bNoPeta As Boolean, sPetaFmt As String) As String ' bNoExa As Boolean, bNoZetta As Boolean, bNoYotta As Boolean) As String
+    Dim sName As String
+    Dim dblKBs As LongLong
+    'cannot currently work with exabytes and above due to limit of currency data type
+    On Error GoTo e0
+
+    If (bNoKilo = True) And (bNoMega = True) And (bNoGiga = True) And (bNoTera = True) And (bNoPeta = True) Then
+        sName = Format$(curB, sByteFmt)
+        GoTo chkunit
+    End If
+
+    If (curB < 1024) And (bNoBytes = False) Then
+        sName = Format$(curB, sByteFmt)
+    Else
+        dblKBs = curB / 1024^
+        If ((dblKBs > 999999999999^) And (bNoPeta = False)) Or ((bNoTera = True) And (bNoGiga = True) And (bNoMega = True) And (bNoKilo = True) And (bNoBytes = True)) Then
+            'file size >1TB and user-pref allows using GB unit
+            dblKBs = dblKBs / 1024^ / 1024^ / 1024^ / 1024^
+            sName = Format$(dblKBs, sPetaFmt)
+        ElseIf ((dblKBs > 999999999^) And (bNoTera = False)) Or ((bNoGiga = True) And (bNoMega = True) And (bNoKilo = True) And (bNoBytes = True)) Then
+            'file size >1TB and user-pref allows using GB unit
+            dblKBs = dblKBs / 1024^ / 1024^ / 1024^
+            sName = Format$(dblKBs, sTeraFmt)
+        ElseIf ((dblKBs > 999999^) And (bNoGiga = False)) Or ((bNoMega = True) And (bNoKilo = True) And (bNoBytes = True)) Then
+            'file size >1GB and user-pref allows using GB unit
+            dblKBs = dblKBs / 1024^ / 1024^
+            sName = Format$(dblKBs, sGigaFmt)
+        ElseIf ((dblKBs > 999^) And (bNoMega = False)) Or ((bNoKilo = True) And (bNoBytes = True)) Then
+            dblKBs = dblKBs / 1024^
+            sName = Format$(dblKBs, sMegaFmt)
+        ElseIf (bNoKilo = False) Then
+            sName = Format$(dblKBs, sKiloFmt)
+        Else
+            sName = Format$(curB, sByteFmt)
+        End If
+    End If
+
+    chkunit:
+
+        FormatFileSizeCurExB = sName
+
+    On Error GoTo 0
+    Exit Function
+
+    e0:
+    PostLog "FormatFileSizeCurExB(" & CStr(curB) & ").Error->" & Err.Description & " (" & Err.Number & ")"
+    FormatFileSizeCurExB = vbNullString
+End Function
+   
+Private Function SystemTimeToDate(st As SYSTEMTIME) As Date
+    SystemTimeToDate = DateSerial(st.wYear, st.wMonth, st.wDay) + TimeSerial(st.wHour, st.wMinute, st.wSecond)
+End Function
+Private Function FormatTime(syst As SYSTEMTIME) As String
+    If syst.wYear = 0 Then
+        FormatTime = vbNullString
+        Exit Function
+    End If
+    Dim dt As Date
+    dt = SystemTimeToDate(syst)
+    FormatTime = Format$(dt, dtFormat) '& "." & Format$("###", syst.wMilliseconds)
+    Debug.Print "FT " & syst.wDay & "," & FormatTime
+End Function
+
+Private Function DoLVNotify(hwnd As LongPtr, lParam As LongPtr) As Long
+Dim sText As String, sSubText As String
+Dim tNMH As TBEventTrace.NMHDR
+CopyMemory tNMH, ByVal lParam, Len(tNMH)
+
+Select Case tNMH.code
+    Case WM_NOTIFYFORMAT
+        DoLVNotify = NFR_UNICODE
+        Exit Function
+        
+    Case LVN_GETEMPTYMARKUP
+        Dim nmlvem As NMLVEMPTYMARKUP
+        Debug.Print "LVN_GETEMPTYMARKUP"
+        CopyMemory ByVal VarPtr(nmlvem), ByVal lParam, LenB(nmlvem)
+        CopyMemory nmlvem.szMarkup(0), ByVal StrPtr(sEmpty), LenB(sEmpty)
+        nmlvem.dwFlags = EMF_CENTERED
+        CopyMemory ByVal lParam, ByVal VarPtr(nmlvem), LenB(nmlvem)
+
+   Case LVN_GETDISPINFOW
+        Dim LVDI As NMLVDISPINFOW
+        CopyMemory ByVal VarPtr(LVDI), ByVal lParam, LenB(LVDI)
+        With LVDI.Item
+            If (.Mask And LVIF_IMAGE) = LVIF_IMAGE Then
+                .iImage = DispActLog(.iItem).iIcon
+           End If
+            If (.Mask And LVIF_TEXT) = LVIF_TEXT Then
+                Dim lp As LongPtr
+                lp = GetHDItemlParam(hLVSHdr, .iSubItem)
+                Select Case lp
+                    Case 0:  .pszText = StrPtr(DispActLog(.iItem).sProcess)
+                    Case 1
+                        If DispActLog(.iItem).iType = atFileCreate Then .pszText = StrPtr("Open/Create:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atFileAccess Then .pszText = StrPtr("DiskIO:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atFileDelete Then .pszText = StrPtr("DeleteFile:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atFileRename Then .pszText = StrPtr("RenameFile:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atFileQuery Then .pszText = StrPtr("QueryFile:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atFileSetInfo Then .pszText = StrPtr("SetFileInfo:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atDirChange Then .pszText = StrPtr("DirChange:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atDirEnum Then .pszText = StrPtr("DirEnum:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atDirDel Then .pszText = StrPtr("DeleteDir:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atDirRename Then .pszText = StrPtr("RenameDir:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atDirSetLink Then .pszText = StrPtr("SetLinkDir:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atFileFsctl Then .pszText = StrPtr("FSCTL:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atDirNotify Then .pszText = StrPtr("DirNotify:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atRundown Then .pszText = StrPtr("Rundown:" & CStr(DispActLog(.iItem).iCode))
+                        If DispActLog(.iItem).iType = atOpenFileRW Then .pszText = StrPtr("OpenFileRW:" & CStr(DispActLog(.iItem).iCode))
+                    Case 2: .pszText = StrPtr(DispActLog(.iItem).sFile)
+                    Case 3: .pszText = StrPtr(FormatSize(DispActLog(.iItem).cRead))
+                    Case 4: .pszText = StrPtr(FormatSize(DispActLog(.iItem).cWrite))
+                    Case 5: .pszText = StrPtr(FormatTime(DispActLog(.iItem).dtStart))
+                    Case 6: .pszText = StrPtr(FormatTime(DispActLog(.iItem).dtMod))
+                    Case 7: .pszText = StrPtr(DispActLog(.iItem).sMisc)
+                    Case 8: .pszText = StrPtr(CStr(DispActLog(.iItem).OpenCount))
+                    Case 9: .pszText = StrPtr(CStr(DispActLog(.iItem).DeleteCount))
+                    Case 10: .pszText = StrPtr(CStr(DispActLog(.iItem).sCmdLine))
+                End Select
+            End If
+        End With
+
+        CopyMemory ByVal lParam, ByVal VarPtr(LVDI), LenB(LVDI)
+                   
+        Case LVN_ENDSCROLL
+            Dim tsc As SCROLLINFO
+            tsc.cbSize = LenB(tsc)
+            tsc.fMask = SIF_ALL
+            GetScrollInfo hLVS, SB_VERT, tsc
+            If (tsc.nPage + tsc.nPos) >= (tsc.nMax - 1&) Then
+                bScrBtm = True
+            Else
+                bScrBtm = False
+            End If
+                
+                   
+    Case NM_RCLICK
+        If tNMH.hWndFrom = hLVS Then
+            Form1.ShowLVMenu
+        End If
+       
+'    Case NM_DBLCLK
+'            Dim isel As Long
+'            isel = ListView_GetSelectedItem(hLVS)
+'            dbgitemstr isel
+
+        ' Case NM_CUSTOMDRAW
+        '     Dim NMLVCD As NMLVCUSTOMDRAW
+        '     CopyMemory NMLVCD, ByVal lParam, Len(NMLVCD)
+        '     With NMLVCD.NMCD
+        '         Select Case .dwDrawStage
+
+        '             Case CDDS_PREPAINT
+        '                 DoLVNotify = CDRF_NOTIFYITEMDRAW
+        '                 Exit Function
+
+        '             Case CDDS_ITEMPREPAINT
+        '                 DoLVNotify = CDRF_NOTIFYSUBITEMDRAW
+        '                 Exit Function
+
+        '             Case CDDS_ITEMPREPAINT Or CDDS_SUBITEM
+        '                 If NMLVCD.iSubItem = 6& Then
+        '                     If DispActLog(.dwItemSpec).bChanged Then
+        '                         NMLVCD.ClrTextBk = vbYellow
+        '                     Else
+        '                         NMLVCD.ClrTextBk = clrDefBk
+        '                     End If
+
+        '                     CopyMemory ByVal lParam, NMLVCD, LenB(NMLVCD)
+        '                     DoLVNotify = CDRF_NOTIFYSUBITEMDRAW 'Or CDRF_NEWFONT
+        '                     Exit Function
+        '                 End If
+        '         End Select
+        '     End With
+
+
+End Select
+        
+End Function
+
+    Private Function Subclass2(hWnd As LongPtr, lpFN As LongPtr, Optional uId As LongPtr = 0&, Optional dwRefData As LongPtr = 0&) As Boolean
+    If uId = 0 Then uId = hWnd
+        Subclass2 = SetWindowSubclass(hWnd, lpFN, uId, dwRefData):      Debug.Assert Subclass2
+    End Function
+
+    Private Function UnSubclass2(hWnd As LongPtr, ByVal lpFN As LongPtr, pid As LongPtr) As Boolean
+        UnSubclass2 = RemoveWindowSubclass(hWnd, lpFN, pid)
+    End Function
+    
+     Private Function LVSWndProc(ByVal hWnd As LongPtr, ByVal uMsg As Long, ByVal wParam As LongPtr, ByVal lParam As LongPtr, ByVal uIdSubclass As LongPtr, ByVal dwRefData As LongPtr) As LongPtr
+                        
+    Select Case uMsg
+        Case WM_NOTIFYFORMAT
+            'Enable Unicode support
+            LVSWndProc = NFR_UNICODE
+            Exit Function
+        Case WM_NOTIFY
+            Dim tNMH As TBEventTrace.NMHDR
+            CopyMemory tNMH, ByVal lParam, Len(tNMH)
+            
+            Select Case tNMH.code
+                Case WM_NOTIFYFORMAT
+                    LVSWndProc = NFR_UNICODE
+            End Select
+    Case WM_DESTROY
+        Call UnSubclass2(hWnd, AddressOf LVSWndProc, uIdSubclass)
+    End Select
+    LVSWndProc = DefSubclassProc(hWnd, uMsg, wParam, lParam)
+    End Function
+
+    '@1
+    Private Function F1WndProc(ByVal hWnd As LongPtr, ByVal uMsg As Long, ByVal wParam As LongPtr, ByVal lParam As LongPtr, ByVal uIdSubclass As LongPtr, ByVal dwRefData As LongPtr) As LongPtr
+                        
+    Select Case uMsg
+            Case WM_NOTIFYFORMAT
+                'Enable Unicode support
+                F1WndProc = NFR_UNICODE
+                Exit Function
+
+            Case WM_NOTIFY
+                Dim dwRtn As Long
+                If (wParam = IDD_LISTVIEW) Then
+                    dwRtn = DoLVNotify(hWnd, lParam)
+                End If
+                If dwRtn Then
+                    F1WndProc = dwRtn
+                    Exit Function
+                End If
+                
+            Case WM_COMMAND
+                Dim lCode As Long
+                lCode = HiWord(CLng(wParam))
+                Select Case lCode
+                    Case BN_KILLFOCUS
+                        
+                        If lParam = hBtnPause Then
+                            Debug.Print "BN_KILLFOCUS " & bPauseCol
+                            If bPauseCol Then
+                                Call SendMessage(hBtnPause, BM_SETSTATE, 1&, ByVal 0&)
+                            End If
+                        End If
+        
+                        F1WndProc = 1
+                        Exit Function
+                End Select
+
+        Case WM_DESTROY
+            Call UnSubclass2(hWnd, AddressOf F1WndProc, uIdSubclass)
+    End Select
+    F1WndProc = DefSubclassProc(hWnd, uMsg, wParam, lParam)
+    End Function
+        
+End Class

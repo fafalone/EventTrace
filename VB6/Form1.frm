@@ -76,7 +76,7 @@ Begin VB.Form Form1
             Height          =   225
             Left            =   1590
             TabIndex        =   52
-            ToolTipText     =   $"Form1.frx":00A0
+            ToolTipText     =   $"Form1.frx":00D4
             Top             =   180
             Value           =   1  'Checked
             Width           =   645
@@ -330,7 +330,7 @@ Begin VB.Form Form1
          Height          =   255
          Left            =   120
          TabIndex        =   39
-         ToolTipText     =   $"Form1.frx":01B8
+         ToolTipText     =   $"Form1.frx":01EC
          Top             =   210
          Value           =   1  'Checked
          Width           =   1425
@@ -629,7 +629,7 @@ Option Explicit
 '************************************************************************************
 'VBEventTrace File Activity Monitor
 '
-'Version: 2.0 Last modified: 2022 May 11
+'Version: 2.1 Last modified: 2022 May 11
 '
 'Monitor disk and file activity with the Windows Event Tracing NT Kernel Logger
 'This will catch many activities missed by higher level methods like shell

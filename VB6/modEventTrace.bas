@@ -22,7 +22,7 @@ Private Declare Function ConvertSidToStringSid Lib "advapi32" Alias "ConvertSidT
 'IMPORTS
 'Dependencies from other headers
 
-'In this project, MAX_PATH is adjusted upward...
+'In this project, MAX_PATH is adjusted upward:
 'We receive paths like \Device\HarddiskvolumeShadowCopy12\path\etc where
 'the prefix and volume (DOS device name) don't count towards the limit.
 Public Const MAX_PATH_DOS = 300

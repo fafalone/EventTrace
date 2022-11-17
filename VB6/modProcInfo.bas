@@ -2,7 +2,7 @@ Attribute VB_Name = "modProcInfo"
 Option Explicit
 
 '*******************************************************************************************
-'modProcInfo  - Process information from pid.
+'modProcInfo  - Process information from process id (pid).
 '
 '(revision 2, 2022/04/16) (c)2022 fafalone
 '

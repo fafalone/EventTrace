@@ -1,5 +1,4 @@
 Attribute VB_Name = "modMultiThreading"
-' //
 ' // modMultiThreading2.bas - The module provides support for multi-threading.
 ' // Version 2.1
 ' // © Krivous Anatoly Anatolevich (The trick), 2015-2019
@@ -107,17 +106,17 @@ Private Type THREADENTRY32
 End Type
 
 Private Type POINTAPI
-    x                   As Long
-    y                   As Long
+    X                   As Long
+    Y                   As Long
 End Type
 
-Private Type msg
-    hwnd                As Long
+Private Type Msg
+    hWnd                As Long
     message             As Long
     wParam              As Long
     lParam              As Long
     time                As Long
-    pt                  As POINTAPI
+    PT                  As POINTAPI
 End Type
 
 Private Type WNDCLASSEX
@@ -165,7 +164,7 @@ Private Declare Sub DeleteCriticalSection Lib "kernel32" ( _
                     ByRef lpCriticalSection As CRITICAL_SECTION)
 Private Declare Function TryEnterCriticalSection Lib "kernel32" ( _
                          ByRef lpCriticalSection As CRITICAL_SECTION) As Long
-Private Declare Function IStream_Reset Lib "Shlwapi" Alias "#213" ( _
+Private Declare Function IStream_Reset Lib "shlwapi" Alias "#213" ( _
                          ByVal pStm As Any) As Long
 Private Declare Function rtcCallByName Lib "msvbvm60" ( _
                          ByRef vRet As Variant, _
@@ -204,11 +203,11 @@ Private Declare Function RegSetValueEx Lib "advapi32.dll" _
                          ByVal dwType As Long, _
                          ByRef lpData As Any, _
                          ByVal cbData As Long) As Long
-Private Declare Function CreateIExprSrvObj Lib "MSVBVM60.DLL" ( _
+Private Declare Function CreateIExprSrvObj Lib "msvbvm60.dll" ( _
                          ByVal pUnk1 As Long, _
                          ByVal lUnk2 As Long, _
                          ByVal pUnk3 As Long) As IUnknown
-Private Declare Function VBDllGetClassObject Lib "MSVBVM60.DLL" ( _
+Private Declare Function VBDllGetClassObject Lib "msvbvm60.dll" ( _
                          ByRef phModule As Long, _
                          ByVal lReserved As Long, _
                          ByVal pVBHeader As Long, _
@@ -306,7 +305,7 @@ Private Declare Function CoReleaseMarshalData Lib "ole32" ( _
 Private Declare Function GetMessage Lib "user32" _
                          Alias "GetMessageW" ( _
                          ByRef lpMsg As Any, _
-                         ByVal hwnd As Long, _
+                         ByVal hWnd As Long, _
                          ByVal wMsgFilterMin As Long, _
                          ByVal wMsgFilterMax As Long) As Long
 Private Declare Function TranslateMessage Lib "user32" ( _
@@ -341,7 +340,7 @@ Private Declare Function CreateStreamOnHGlobal Lib "ole32" ( _
 Private Declare Function PostThreadMessage Lib "user32" _
                          Alias "PostThreadMessageW" ( _
                          ByVal idThread As Long, _
-                         ByVal msg As Long, _
+                         ByVal Msg As Long, _
                          ByVal wParam As Long, _
                          ByVal lParam As Long) As Long
 Private Declare Function lstrlen Lib "kernel32" _
@@ -355,19 +354,19 @@ Private Declare Function CreateToolhelp32Snapshot Lib "kernel32" ( _
                          ByVal th32ProcessID As Long) As Long
 Private Declare Function Thread32First Lib "kernel32" ( _
                          ByVal hSnapshot As Long, _
-                         ByRef lpte As THREADENTRY32) As Long
+                         ByRef lpTE As THREADENTRY32) As Long
 Private Declare Function Thread32Next Lib "kernel32" ( _
                          ByVal hSnapshot As Long, _
-                         ByRef lpte As THREADENTRY32) As Long
+                         ByRef lpTE As THREADENTRY32) As Long
 Private Declare Function GetCurrentProcessId Lib "kernel32" () As Long
 
 Private Declare Function GetClassLong Lib "user32" _
                          Alias "GetClassLongW" ( _
-                         ByVal hwnd As Long, _
+                         ByVal hWnd As Long, _
                          ByVal nIndex As Long) As Long
 Private Declare Function SetClassLong Lib "user32" _
                          Alias "SetClassLongW" ( _
-                         ByVal hwnd As Long, _
+                         ByVal hWnd As Long, _
                          ByVal nIndex As Long, _
                          ByVal dwNewLong As Long) As Long
 Private Declare Function GetClassInfoEx Lib "user32" _
@@ -391,8 +390,8 @@ Private Declare Function CreateWindowEx Lib "user32" _
                          ByVal lpClassName As Long, _
                          ByVal lpWindowName As Long, _
                          ByVal dwStyle As Long, _
-                         ByVal x As Long, _
-                         ByVal y As Long, _
+                         ByVal X As Long, _
+                         ByVal Y As Long, _
                          ByVal nWidth As Long, _
                          ByVal nHeight As Long, _
                          ByVal hWndParent As Long, _
@@ -403,7 +402,7 @@ Private Declare Function GetModuleHandle Lib "kernel32" _
                          Alias "GetModuleHandleW" ( _
                          ByVal lpModuleName As Long) As Long
 Private Declare Function DestroyWindow Lib "user32" ( _
-                         ByVal hwnd As Long) As Long
+                         ByVal hWnd As Long) As Long
 Private Declare Function SuspendThread Lib "kernel32" ( _
                          ByVal hThread As Long) As Long
 Private Declare Function ResumeThread Lib "kernel32" ( _
@@ -414,8 +413,8 @@ Private Declare Function OpenThread Lib "kernel32" ( _
                          ByVal dwThreadId As Long) As Long
 Private Declare Function PeekMessage Lib "user32" _
                          Alias "PeekMessageW" ( _
-                         ByRef lpMsg As msg, _
-                         ByVal hwnd As Long, _
+                         ByRef lpMsg As Msg, _
+                         ByVal hWnd As Long, _
                          ByVal wMsgFilterMin As Long, _
                          ByVal wMsgFilterMax As Long, _
                          ByVal wRemoveMsg As Long) As Long
@@ -1020,7 +1019,7 @@ Public Sub WaitForObjectThreadCompletion( _
            ByVal lAsynchId As Long)
     Dim hThread     As Long
     Dim bIsInIDE    As Boolean
-    Dim tMSG        As msg
+    Dim tMSG        As Msg
     
     Debug.Assert MakeTrue(bIsInIDE)
     
@@ -1297,7 +1296,7 @@ Private Function ActiveXThreadProc( _
     Dim cObj        As IUnknown
     Dim cObjDead    As IUnknown
     Dim pObjDeadPtr As Long
-    Dim tMSG        As msg
+    Dim tMSG        As Msg
     Dim vRet        As Variant
     Dim lRet        As Long
     Dim hr          As Long
@@ -1344,7 +1343,7 @@ Private Function ActiveXThreadProc( _
             lRet = GetMessage(tMSG, 0, 0, 0)
             If lRet = -1 Or lRet = 0 Then Exit Do
             
-            If tMSG.message = WM_ASYNCH_CALL And tMSG.hwnd = 0 Then
+            If tMSG.message = WM_ASYNCH_CALL And tMSG.hWnd = 0 Then
                 MakeAsynchCall cObj, tMSG.lParam
             Else
     

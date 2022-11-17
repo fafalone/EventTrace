@@ -3,7 +3,8 @@ Option Explicit
 'modListViewAndHeader
 '
 'Contains definitions used to create and display items in a ListView.
-'
+'Also contains generic APIs used to support common ListView operations.
+
 Public Const sEmpty As String = "Waiting for trace activity..."
 
 Public Enum SWP_Flags

@@ -1,5 +1,6 @@
 Attribute VB_Name = "modFastFuncs"
 Option Explicit
+'High performance alternatives to native functions from vbspeed.net
 
 Private Declare Function SysAllocStringByteLen Lib "oleaut32" (ByVal olestr As Long, ByVal BLen As Long) As Long
 Private Declare Function ArrPtr& Lib "msvbvm60.dll" Alias "VarPtr" (ptr() As Any)

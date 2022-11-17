@@ -10,7 +10,7 @@ Option Explicit
 'how you like. This demo implements a virtual ListView on the
 'main form. Note: In a separate project, take care to note
 'everything that happens on starting/stopping, there's a little
-'more to it than calling Init/End.
+'more to it than simply calling Init/End.
 '
 'Requires: modEventTrace.bas (Windows Event Tracing definitions)
 '          modThreadProcID.bas (Module to identify a process based on id)

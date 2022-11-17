@@ -10,6 +10,8 @@ Attribute VB_Name = "modFileDialog"
 '  are expressly forbidden from selling or otherwise distributing this
 '  source code without prior written consent.
 ' *********************************************************************
+'2022-11 Unicode functions fixed. -fafalone
+'
 Option Explicit
 
 ' Win32 API declarations

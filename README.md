@@ -1,8 +1,10 @@
-# VBEventTrace v2.1/TBEventTrace v2.2.2
+# VBEventTrace v2.1/TBEventTrace v2.2.3
 
 ![Screenshot](https://i.imgur.com/8F2HYde.jpg)
 
 Event Tracing fo Windows (ETW) File Activity Monitor, VB6/twinBASIC x64 port
+
+**Update (2022 Dec 07)**: Applied temporary fix for twinBASIC bug that results in the ListView being erased on resize. Also, x64 binary no longer has a twinBASIC banner on startup as I'm now proudly supporting the project with a subscription :)
 
 [Event Tracing for Windows (ETW)](https://docs.microsoft.com/en-us/windows/win32/etw/about-event-tracing) is a notoriously complex and unfriendly API, but it's extremely powerful. It allows access to messages from the NT Kernel Logger, which provides a profound level of detail about activity on the system. It provides details about many types of activity, but this first project will focus on File Activity. I also plan to follow this up with a monitor for TcpIp and Udp connections.
 
@@ -151,6 +153,8 @@ Changlog:
 
 ```
 'Applies to twinBASIC version only:
+'Version 2.2.3 -Temporary workaround for twinBASIC API-control-erasure bug.
+'
 'Version 2.2.2 -Subclassing moved back to form and PictureBox now used for
 '               'More Options' popup, taking advantage of new tB features to
 '               make this more similar to the VB version.

@@ -6,14 +6,14 @@ Option Explicit
 
 '************************************************************************************
 Private Const AppTitle = "TBEventTrace"
-'TBEventTrace 1.21, port of:
+'TBEventTrace 2.2.3, port of:
 'VBEventTrace File Activity Monitor
 'Note: Unlike the VB6 version, the 32bit build will not run on 64bit Windows.
 '  But, the 32bit build WILL run on 32bit Windows, where the VB6 version doesn't.
 '  The hard-coded 64bit MOF types have been removed.
 '
 '
-'Version: 2.21 (2022 Sep 16)
+'Version: 2.2.3 (2022 Dec 07)
 '
 'Monitor disk and file activity with the Windows Event Tracing NT Kernel Logger
 'This will catch many activities missed by higher level methods like shell
@@ -44,6 +44,8 @@ Private Const AppTitle = "TBEventTrace"
 ' supplied by a callback, and only the ones being displayed are queried.
 '
 'Changelog
+'Version 2.2.3 -Temporary workaround for twinBASIC API-control-erasure bug.
+'
 'Version 2.2.2 -Subclassing moved back to form and PictureBox now used for
 '               'More Options' popup, taking advantage of new tB features to
 '               make this more similar to the VB version.
@@ -176,6 +178,7 @@ Private Const AppTitle = "TBEventTrace"
 '
 '************************************************************************************
 
+Private mItv As Long
 
 Private nCurCt As Long
 Private nLogPos As Long
@@ -220,6 +223,9 @@ Private Declare PtrSafe Function TrackPopupMenu Lib "user32" (ByVal hMenu As Lon
 Private Declare PtrSafe Function SetFocusAPI Lib "user32" Alias "SetFocus" (ByVal hWnd As LongPtr) As LongPtr
 Private DeclareWide PtrSafe Function LoadIcon Lib "user32" Alias "LoadIconW" (ByVal hInstance As LongPtr, ByVal lpIconName As String) As LongPtr
 Private Declare PtrSafe Function DestroyIcon Lib "user32" (ByVal hIcon As LongPtr) As Long
+Private Declare PtrSafe Function RedrawWindow Lib "user32" (ByVal hWnd As LongPtr, ByVal lprcUpdate As LongPtr, ByVal hrgnUpdate As LongPtr, ByVal flags As RDW_Flags) As Long
+
+
 Private Const GWL_STYLE As Long = (-16)
 Private Const WM_NCLBUTTONDOWN = &HA1
 Private Const WM_SETICON = &H80
@@ -253,7 +259,20 @@ Private Enum WinStylesEx
     WS_EX_PALETTEWINDOW = (WS_EX_WINDOWEDGE Or WS_EX_TOOLWINDOW Or WS_EX_TOPMOST)
 End Enum   ' WinStylesEx
 
-
+Private Enum RDW_Flags
+    RDW_INVALIDATE = &H1
+    RDW_INTERNALPAINT = &H2
+    RDW_ERASE = &H4
+    RDW_VALIDATE = &H8
+    RDW_NOINTERNALPAINT = &H10
+    RDW_NOERASE = &H20
+    RDW_NOCHILDREN = &H40
+    RDW_ALLCHILDREN = &H80
+    RDW_UPDATENOW = &H100
+    RDW_ERASENOW = &H200
+    RDW_FRAME = &H400
+    RDW_NOFRAME = &H800
+End Enum
 
 Private Type SCROLLINFO
     cbSize As Long
@@ -720,26 +739,14 @@ Private Declare PtrSafe Function RemoveWindowSubclass Lib "comctl32.dll" Alias "
     'DumpMap 
     End Sub
     
-    Private Sub Option3_Click() Handles Option3.Click
-        If Option3.Value = True Then
-            Option4.Value = False
-            Option5.Value = False
+    Private Sub Option3_Click(Index As Integer) Handles Option3.Click
+        If Option3(0).Value = True Then
             ProcInfoNoCache = False
         End If
-    End Sub
-    
-    Private Sub Option4_Click() Handles Option4.Click
-        If Option4.Value = True Then
-            Option3.Value = False
-            Option5.Value = False
+        If Option3(1).Value = True Then
             ProcInfoNoCache = True
         End If
-    End Sub
-    
-    Private Sub Option5_Click() Handles Option5.Click
-        If Option5.Value = True Then
-            Option3.Value = False
-            Option4.Value = False
+        If Option3(2).Value = True Then
             If DiskIOExclusive Then
                 ProcInfoNoCache = True
             Else
@@ -907,9 +914,11 @@ Private Declare PtrSafe Function RemoveWindowSubclass Lib "comctl32.dll" Alias "
 
         bStopping = True
         EndTrace gSessionHandle, gTraceHandle
-
+        Dim tidCur As Long
+        tidCur = GetCurrentThreadId()
         Dim hr As Long
-        hr = WaitForSingleObject(hThreadWait, 5000)
+        PostLog "Calling WaitForSingleObject from tid " & tidCur
+        hr = WaitForSingleObject(hThreadWait, 10000)
         If hr = WAIT_OBJECT_0 Then
             CloseHandle hThreadWait
             tmrRefresh.Enabled = False
@@ -921,6 +930,7 @@ Private Declare PtrSafe Function RemoveWindowSubclass Lib "comctl32.dll" Alias "
             SyncRecordsAndUpdate 'Do one last refresh to get the last data
         ElseIf hr = WAIT_TIMEOUT Then
             PostLog "Error: Timed out waiting for ProcessTrace thread exit."
+            CloseHandle hThreadWait
         ElseIf hr = WAIT_FAILED Then
             PostLog "Error: WAIT_FAILED, " & GetErrorName(Err.LastDllError)
         End If
@@ -935,7 +945,7 @@ Private Declare PtrSafe Function RemoveWindowSubclass Lib "comctl32.dll" Alias "
         Check7.Enabled = True
         Check8.Enabled = True
         Check13.Enabled = True
-        Check21.Enabled = False
+        Check21.Enabled = True
 
         Dim IsIDE As Boolean
         Debug.Assert MakeTrue(IsIDE)
@@ -989,7 +999,7 @@ Private Declare PtrSafe Function RemoveWindowSubclass Lib "comctl32.dll" Alias "
         dwFrEx = CLng(GetWindowLong(pbOptions.hWnd, GWL_EXSTYLE))
         dwFrEx = dwFrEx Or WS_EX_DLGMODALFRAME
         SetWindowLong pbOptions.hWnd, GWL_EXSTYLE, dwFrEx
-
+        PostLog "OptionsLeft=" & Frame2.Left
         SetWindowPos pbOptions.hWnd, 0&, Frame2.Left + 10&, 10&, 0&, 0&, SWP_NOSIZE Or SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_FRAMECHANGED
     End Sub
     
@@ -997,16 +1007,32 @@ Private Declare PtrSafe Function RemoveWindowSubclass Lib "comctl32.dll" Alias "
         pbOptions.Visible = False
     End Sub
     
+    Private Sub RedrawWindows()
+        RedrawWindow hLVS, 0, 0, RDW_UPDATENOW Or RDW_INVALIDATE Or RDW_ERASE Or RDW_ALLCHILDREN
+    End Sub
+
+    Private Sub Timer1_Timer() Handles Timer1.Timer
+        If mItv = 3 Then
+            RedrawWindows
+            mItv = 0
+            Timer1.Enabled = False
+        Else
+            mItv += 1
+        End If
+    End Sub
+
     Private Sub Form_Resize() Handles Form.Resize
         On Error Resume Next
         
         If Form1.Height < 260 Then Form1.Height = 260
-        Text1.Width = Form1.Width - 730& - 15
+        Text1.Width = Form1.ScaleWidth - 730& - 15
 
         Dim rc As RECT
         GetClientRect Me.hWnd, rc
 
         SetWindowPos hLVS, 0&, 0&, 0&, rc.Right - 10&, rc.Bottom - 204& * m_ScaleY, SWP_NOMOVE Or SWP_NOZORDER
+        mItv = 0
+        If Timer1.Enabled = False Then Timer1.Enabled = True
     End Sub
     
     Private Sub Form_Terminate() Handles Form.Terminate
@@ -1133,11 +1159,11 @@ Private Declare PtrSafe Function RemoveWindowSubclass Lib "comctl32.dll" Alias "
         PostLog "Note: Running in DiskIO exclusive mode. FileIO events cannot be enabled/disabled while running."
     End If
 
-    If Option3.Value = True Then
+    If Option3(0).Value = True Then
         ProcInfoNoCache = False
-    ElseIf Option4.Value = True Then
+    ElseIf Option3(1).Value = True Then
         ProcInfoNoCache = True
-    ElseIf Option5.Value = True Then
+    ElseIf Option3(2).Value = True Then
         If DiskIOExclusive Then
             ProcInfoNoCache = True
         Else
@@ -1179,7 +1205,10 @@ Private Declare PtrSafe Function RemoveWindowSubclass Lib "comctl32.dll" Alias "
         If hToken Then CloseHandle hToken
     End Function
  
+    [ ArrayBoundsChecks (False) ]
+    [ IntegerOverflowChecks (False) ]
     Private Sub SyncRecordsAndUpdate()
+    
     'Synchronize data with the ActivityLog
     'This involves accessing the log and counter the other thread
     'is constantly accessing, so we need a critical section to enforce
@@ -2266,5 +2295,9 @@ End Function
     End Select
     F1WndProc = DefSubclassProc(hWnd, uMsg, wParam, lParam)
     End Function
-        
+    
+    
+
+    
+
 End Class

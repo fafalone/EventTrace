@@ -25,6 +25,16 @@ Public Declare PtrSafe Function ReleaseDC Lib "user32" (ByVal hWnd As LongPtr, B
 Public Const LOGPIXELSX = 88
 Public Const LOGPIXELSY = 90
 Public m_ScaleX As single, m_ScaleY As Single
+
+Public Declare PtrSafe Function CoInitialize Lib "ole32" (ByVal pvReserved As LongPtr) As Long
+Public Declare PtrSafe Function CoInitializeEx Lib "ole32" (ByVal pvReserved As LongPtr, dwCoInit As COINIT) As Long
+Public Declare PtrSafe Sub CoUninitialize Lib "ole32" ()
+Public Enum COINIT
+	COINIT_APARTMENTTHREADED = &H2
+	COINIT_MULTITHREADED = 0
+	COINIT_DISABLE_OLE1DDE = &H4
+	COINIT_SPEED_OVER_MEMORY = &H8
+End Enum
 '-------
 
 Private dbgmax As Long, rdmax As Long, obmax As Long, tdmax As Long
@@ -806,15 +816,19 @@ End Function
 
 ''We don't need this thread to do much... it's just here to call ProcessTrace then shut down when it returns.
 Public Sub ThreadProcTrace(ByVal ThreadParam As Long)
+'CoInitialize 0
 Dim hr As Long
 tidSelfProcEvt = GetCurrentThreadId()
-
+PostLog "ProcTraceThread->Entry, tid=" & tidSelfProcEvt
 If gSessionHandle Then
     hr = ProcessTrace(VarPtr(gSessionHandle), 1&, 0&, 0&)
+    PostLog "ProcTraceThread->Returned from ProcessTrace"
     hr = CloseTrace(gSessionHandle)
-    gSessionHandle = 0@
-    gTraceHandle = 0@
+    PostLog "ProcTraceThread->Returned from CloseTrace"
+    gSessionHandle = 0^
+    gTraceHandle = 0^
 End If
+'CoUninitialize
 End Sub
 
 '=====================================================================

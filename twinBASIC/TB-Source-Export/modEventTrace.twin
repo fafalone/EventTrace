@@ -630,11 +630,6 @@ Public Type EVENT_TRACE             'typedef struct _EVENT_TRACE {
                                     '    union {
     Context As Long                 '        ULONG               ClientContext;
                            '        ETW_BUFFER_CONTEXT  BufferContext;
-    #If WIN64 Then
-        '88 bytes, no padding
-    #Else '84 bytes
-    padding(0 To 3) As Byte 'QUARDWORD ALIGN'}DUMMYUNIONNAME;
-    #End If
 End Type                            '} EVENT_TRACE, *PEVENT_TRACE;
 
 Public Enum TraceDataTypes
@@ -1433,7 +1428,16 @@ Public Const ettfioMapFileDCEnd As Byte = 40
 Public Const ettfioDletePath As Byte = 79
 Public Const ettfioRenamePath As Byte = 80
 Public Const ettfioSetLinkPath As Byte = 81
- 
+Public Type tst
+    a  As Long
+    v  As variant
+End Type
+Sub test()
+Dim t As tst
+t.v = "abcdefghikjhjh"
+Debug.Print LenB(t)
+End Sub
+
 Public Sub DEFINE_GUID(Name As GUID, l As Long, w1 As Integer, w2 As Integer, B0 As Byte, b1 As Byte, b2 As Byte, B3 As Byte, b4 As Byte, b5 As Byte, b6 As Byte, b7 As Byte)
   With Name
     .Data1 = l

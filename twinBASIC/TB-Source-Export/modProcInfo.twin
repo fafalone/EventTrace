@@ -57,6 +57,15 @@ Private Enum TH32CS_Flags
     TH32CS_INHERIT = &H80000000
 End Enum
 
+Private Enum PriorityClass
+    NORMAL_PRIORITY_CLASS = &H20
+    IDLE_PRIORITY_CLASS = &H40
+    HIGH_PRIORITY_CLASS = &H80
+    REALTIME_PRIORITY_CLASS = &H100
+    BELOW_NORMAL_PRIORITY_CLASS = &H4000
+    ABOVE_NORMAL_PRIORITY_CLASS = &H8000
+End Enum
+
 Private Type THREADENTRY32
     dwSize As Long
     cntUsage As Long
@@ -75,9 +84,9 @@ Private Type PROCESSENTRY32W
     th32ModuleID As Long
     cntThreads As Long
     th32ParentProcessID As Long
-    pcPriClassBase As Long
+    pcPriClassBase As PriorityClass
     dwFlags As Long
-    szExeFile(0 To (MAX_PATH - 1)) As Integer
+    szExeFile (0 To (MAX_PATH - 1)) As Integer
 End Type
 
 Private Type UNICODE_STRING
@@ -263,7 +272,7 @@ Private Type PEB
     CrossProcessFlags As Long
     CBTableOrInfoPtr As LongPtr
     SystemReserved(0) As Long
-    AtlThinkSListPtr32 As Long
+    AtlThunkSListPtr32 As Long
     ApiSetMap As LongPtr
     TlsExpansionCounter As Long
     TlsBitmap As LongPtr
@@ -317,6 +326,7 @@ Private Type PEB
     FlsBitmap As LongPtr
     FlsBitmapBits(3) As Long
     FlsHighIndex As Long
+    'Vista+
     WerRegistrationData As LongPtr
     WerShipAssertPtr As LongPtr
     'Believe it or not, future OS' have *even more* members. But Vista stops here, so we will too. 

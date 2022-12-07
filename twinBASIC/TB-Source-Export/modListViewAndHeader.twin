@@ -1109,7 +1109,7 @@ Public Enum LITEM_State
     LIS_HOTTRACK = &H8
     LIS_DEFAULTCOLORS = &H10
 End Enum
-Public Type lItem
+Public Type LITEM
     Mask As LITEM_Mask
     iLink As Long
     State As LITEM_State
@@ -1119,7 +1119,7 @@ Public Type lItem
 End Type
 Public Type NMLVLINK
     hdr As NMHDR
-    Item As lItem
+    Item As LITEM
     iItem As Long
     iGroupId As Long
 End Type
@@ -2323,6 +2323,9 @@ End Function
 '====================================================
 Public Function Header_GetItemW(hwndHD As LongPtr, iItem As Long, phdi As HDITEMW) As Boolean
   Header_GetItemW = SendMessage(hwndHD, HDM_GETITEMW, iItem, phdi)
+End Function
+Private Function Header_SetItemW(hwndHD As LongPtr, i As Long, phdi As HDITEMW) As Boolean
+  Header_SetItemW = SendMessageW(hwndHD, HDM_SETITEMW, ByVal i, phdi)
 End Function
 
 Public Function GetHDItemlParam(hwndHD As LongPtr, iItem As Long) As LongPtr

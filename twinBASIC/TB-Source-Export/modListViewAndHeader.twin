@@ -247,7 +247,7 @@ Public Enum LVStyles
   LVS_NOSCROLL = &H2000
   LVS_NOCOLUMNHEADER = &H4000
   LVS_NOSORTHEADER = &H8000&
-  LVS_TYPESTYLEMASK = &HFC00
+  LVS_TYPESTYLEMASK = &HFC00&
   LVS_ALIGNTOP = &H0
   LVS_ALIGNMASK = &HC00
 End Enum   ' LVStyles
@@ -268,7 +268,7 @@ Public Enum LVStylesEx
   LVS_EX_UNDERLINECOLD = &H1000
   LVS_EX_MULTIWORKAREAS = &H2000
   LVS_EX_LABELTIP = &H4000
-  LVS_EX_BORDERSELECT = &H8000
+  LVS_EX_BORDERSELECT = &H8000&
   LVS_EX_DOUBLEBUFFER = &H10000
   LVS_EX_HIDELABELS = &H20000
   LVS_EX_SINGLEROW = &H40000
@@ -687,7 +687,7 @@ Public Enum LVITEM_state
   LVIS_ACTIVATING = &H20
  
   LVIS_OVERLAYMASK = &HF00
-  LVIS_STATEIMAGEMASK = &HF000
+  LVIS_STATEIMAGEMASK = &HF000&
 End Enum
 Public Type LVBKIMAGE
   ulFlags As LVBKIMAGE_Flags
@@ -962,7 +962,7 @@ Public Enum LVGROUPMASK
      LVGF_TITLEIMAGE = &H1000
      LVGF_EXTENDEDIMAGE = &H2000
      LVGF_ITEMS = &H4000
-     LVGF_SUBSET = &H8000
+     LVGF_SUBSET = &H8000&
      LVGF_SUBSETITEMS = &H10000               'readonly, cItems holds count of items in visible subset, iFirstItem is valid
 End Enum
 
@@ -1382,7 +1382,7 @@ Public Enum HDITEM_FMT
     HDF_RTLREADING = 4
     HDF_BITMAP = &H2000
     HDF_STRING = &H4000
-    HDF_OWNERDRAW = &H8000
+    HDF_OWNERDRAW = &H8000&
     '3.0
     HDF_IMAGE = &H800
     HDF_BITMAP_ON_RIGHT = &H1000
@@ -1399,7 +1399,7 @@ Public Enum HDF_TYPE
     HDFT_ISSTRING = &H0           '// HD_ITEM.pvFilter points to a HD_TEXTFILTER
     HDFT_ISNUMBER = &H1           '// HD_ITEM.pvFilter points to a INT
     HDFT_ISDATE = &H2
-    HDFT_HASNOVALUE = &H8000      '// clear the filter, by setting this bit
+    HDFT_HASNOVALUE = &H8000&      '// clear the filter, by setting this bit
 End Enum
 Public Const HDIS_FOCUSED = &H1
 

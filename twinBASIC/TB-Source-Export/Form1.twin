@@ -6,14 +6,13 @@ Option Explicit
 
 '************************************************************************************
 Private Const AppTitle = "TBEventTrace"
-'TBEventTrace 2.2.3, port of:
+'TBEventTrace 2.2.4, port of:
 'VBEventTrace File Activity Monitor
 'Note: Unlike the VB6 version, the 32bit build will not run on 64bit Windows.
 '  But, the 32bit build WILL run on 32bit Windows, where the VB6 version doesn't.
 '  The hard-coded 64bit MOF types have been removed.
 '
-'
-'Version: 2.2.3 (2022 Dec 07)
+'Version 2.2.4 (2023 Feb 17)
 '
 'Monitor disk and file activity with the Windows Event Tracing NT Kernel Logger
 'This will catch many activities missed by higher level methods like shell
@@ -44,7 +43,11 @@ Private Const AppTitle = "TBEventTrace"
 ' supplied by a callback, and only the ones being displayed are queried.
 '
 'Changelog
+'Version 2.2.4 -Removed temporary workaround for redraw bug as it's fixed.
+'              -Corrected possible sign errors in hex literals
+'
 'Version 2.2.3 -Temporary workaround for twinBASIC API-control-erasure bug.
+'              -Now use control arrays for OptionButton like VB6.
 '
 'Version 2.2.2 -Subclassing moved back to form and PictureBox now used for
 '               'More Options' popup, taking advantage of new tB features to
@@ -462,7 +465,7 @@ Private Enum SHELLEXECUTEMASK
     SEE_MASK_DOENVSUBST = &H200
     SEE_MASK_FLAG_NO_UI = &H400
     SEE_MASK_UNICODE = &H4000
-    SEE_MASK_NO_CONSOLE = &H8000
+    SEE_MASK_NO_CONSOLE = &H8000&
     SEE_MASK_ASYNCOK = &H100000
     SEE_MASK_HMONITOR = &H200000
     SEE_MASK_NOZONECHECKS = &H800000
@@ -1007,20 +1010,6 @@ Private Declare PtrSafe Function RemoveWindowSubclass Lib "comctl32.dll" Alias "
         pbOptions.Visible = False
     End Sub
     
-    Private Sub RedrawWindows()
-        RedrawWindow hLVS, 0, 0, RDW_UPDATENOW Or RDW_INVALIDATE Or RDW_ERASE Or RDW_ALLCHILDREN
-    End Sub
-
-    Private Sub Timer1_Timer() Handles Timer1.Timer
-        If mItv = 3 Then
-            RedrawWindows
-            mItv = 0
-            Timer1.Enabled = False
-        Else
-            mItv += 1
-        End If
-    End Sub
-
     Private Sub Form_Resize() Handles Form.Resize
         On Error Resume Next
         
@@ -1031,8 +1020,7 @@ Private Declare PtrSafe Function RemoveWindowSubclass Lib "comctl32.dll" Alias "
         GetClientRect Me.hWnd, rc
 
         SetWindowPos hLVS, 0&, 0&, 0&, rc.Right - 10&, rc.Bottom - 204& * m_ScaleY, SWP_NOMOVE Or SWP_NOZORDER
-        mItv = 0
-        If Timer1.Enabled = False Then Timer1.Enabled = True
+
     End Sub
     
     Private Sub Form_Terminate() Handles Form.Terminate

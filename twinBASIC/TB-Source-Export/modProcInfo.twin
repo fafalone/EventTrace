@@ -63,7 +63,7 @@ Private Enum PriorityClass
     HIGH_PRIORITY_CLASS = &H80
     REALTIME_PRIORITY_CLASS = &H100
     BELOW_NORMAL_PRIORITY_CLASS = &H4000
-    ABOVE_NORMAL_PRIORITY_CLASS = &H8000
+    ABOVE_NORMAL_PRIORITY_CLASS = &H8000&
 End Enum
 
 Private Type THREADENTRY32
@@ -379,7 +379,7 @@ Private Enum SHGFI_flags
                                                         ' containing the icon, rtns BOOL
   SHGFI_EXETYPE = &H2000            ' rtns two ASCII chars of exe type
   SHGFI_SYSICONINDEX = &H4000   ' sfi.iIcon is sys il icon index, rtns hImagelist
-  SHGFI_LINKOVERLAY = &H8000    ' add shortcut overlay to sfi.hIcon
+  SHGFI_LINKOVERLAY = &H8000&    ' add shortcut overlay to sfi.hIcon
   SHGFI_SELECTED = &H10000        ' sfi.hIcon is selected icon
   SHGFI_ATTR_SPECIFIED = &H20000    ' get only attributes specified in sfi.dwAttributes
 End Enum

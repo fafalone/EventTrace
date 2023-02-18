@@ -102,7 +102,7 @@ Public Enum FILE_ATTRIBUTES
     FILE_ATTRIBUTE_ENCRYPTED = &H4000
     FILE_ATTRIBUTE_REPARSE_POINT = &H400
     FILE_ATTRIBUTE_SPARSE_FILE = &H200
-    FILE_ATTRIBUTE_INTEGRITY_STREAM = &H8000
+    FILE_ATTRIBUTE_INTEGRITY_STREAM = &H8000&
     FILE_ATTRIBUTE_NO_SCRUB_DATA = &H20000
     FILE_ATTRIBUTE_RECALL_ON_OPEN = &H40000
     FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = &H400000
@@ -137,7 +137,7 @@ Public Enum CreateOpts
     FILE_DELETE_ON_CLOSE = &H1000
     FILE_OPEN_BY_FILE_ID = &H2000
     FILE_OPEN_FOR_BACKUP_INTENT = &H4000
-    FILE_NO_COMPRESSION = &H8000
+    FILE_NO_COMPRESSION = &H8000&
     FILE_OPEN_REQUIRING_OPLOCK = &H10000
     FILE_DISALLOW_EXCLUSIVE = &H20000
     FILE_SESSION_AWARE = &H40000
@@ -490,7 +490,7 @@ Public Enum EventTraceFlags
     EVENT_TRACE_FLAG_DISPATCHER = &H800 ' scheduler (ReadyThread)
     EVENT_TRACE_FLAG_VIRTUAL_ALLOC = &H4000 ' VM operations
 '  Enable flags for Kernel Events on Win8 and above
-    EVENT_TRACE_FLAG_VAMAP = &H8000 ' map/unmap (excluding images)
+    EVENT_TRACE_FLAG_VAMAP = &H8000& ' map/unmap (excluding images)
     EVENT_TRACE_FLAG_NO_SYSCONFIG = &H10000000   ' Do not do sys config rundown
 '  Enable flags for Kernel Events on Threshold and above
     EVENT_TRACE_FLAG_JOB = &H80000   ' job start & end
@@ -513,7 +513,7 @@ Public Enum LoggerModeFlags
     EVENT_TRACE_PRIVATE_LOGGER_MODE = &H800        ' Process Public Logger
     EVENT_TRACE_ADD_HEADER_MODE = &H1000       ' Add a logfile header
     EVENT_TRACE_USE_GLOBAL_SEQUENCE = &H4000       ' Use global sequence no.
-    EVENT_TRACE_USE_LOCAL_SEQUENCE = &H8000       ' Use local sequence no.
+    EVENT_TRACE_USE_LOCAL_SEQUENCE = &H8000&       ' Use local sequence no.
     EVENT_TRACE_RELOG_MODE = &H10000      ' Relogger
     EVENT_TRACE_USE_PAGED_MEMORY = &H1000000    ' Use pageable buffers
 '  Logger Mode flags on XP and above
@@ -557,7 +557,7 @@ Public Enum WMITraceMessages
 '  Vista flags set by system to indicate provider pointer size.
     TRACE_MESSAGE_POINTER32 = &H40     ' Message logged by 32 bit provider
     TRACE_MESSAGE_POINTER64 = &H80     ' Message logged by 64 bit provider
-    TRACE_MESSAGE_FLAG_MASK = &HFFFF   ' Only the lower 16 bits of flags are placed in the message
+    TRACE_MESSAGE_FLAG_MASK = &HFFFF&   ' Only the lower 16 bits of flags are placed in the message
 '  those above 16 bits are reserved for local processing
 '  Maximum size allowed for a single TraceMessage message.
 '  N.B. This limit was increased from 8K to 64K in Win8.

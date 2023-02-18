@@ -1,8 +1,10 @@
-# VBEventTrace v2.1/TBEventTrace v2.2.3
+# VBEventTrace v2.1/TBEventTrace v2.2.4
 
 ![Screenshot](https://i.imgur.com/8F2HYde.jpg)
 
 Event Tracing fo Windows (ETW) File Activity Monitor, VB6/twinBASIC x64 port
+
+**Update (2023 Feb 17)**: Removed temporary fix as erase bug has been fixed. Corrected sign issues in some hex literals. 
 
 **Update (2022 Dec 07)**: Applied temporary fix for twinBASIC bug that results in the ListView being erased on resize. Also, x64 binary no longer has a twinBASIC banner on startup as I'm now proudly supporting the project with a subscription :)
 

@@ -139,13 +139,13 @@ PLEASE TAKE NOTE. This program has atypical requirements.
 
 -twinBASIC version only: Windows Vista or newer; a 32bit build can only run on 32bit Windows versions. **UPDATED:** Version 2.2.2 requires [twinBASIC Beta 122 or newer](https://github.com/twinbasic/twinbasic/releases) to open and build from source.
 
--This program can only start event tracing when compiled, due to the need for multithreading that cannot be done in a single thread.
+-VB6 version only: This program can only start event tracing when compiled, due to the need for multithreading that cannot be done in a single thread.
 
 -The NT Kernel Logger requires additional permissions- you need to be a member of the Administrators group (but not necessarily run as admin unless you got the Windows update that changed this), or be a member of the Performance Log Users group, or otherwise have permission to enable the SeSystemProfilePrivilege.
 
 -There are no external dependencies. However, the demo uses a manifest for Common Controls 6.0 styles, and it's advised you also use them in any other project.
 
--VB6: Unicode is supported in the ListView for displaying files etc, but the filter TextBoxes are just regular VB ones, so you'd need to replace those to use Unicode in filtering. twinBASIC: Unicode is supported in all areas.
+-VB6 version only: Unicode is supported in the ListView for displaying files etc, but the filter TextBoxes are just regular VB ones, so you'd need to replace those to use Unicode in filtering. twinBASIC: Unicode is supported in all areas.
 
 Windows 10 is strongly recommended. I have not had the opportunity to test this on other OSs.
 

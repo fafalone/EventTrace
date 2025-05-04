@@ -28,10 +28,9 @@ The [twinBASIC](https://github.com/twinbasic/twinbasic) version: can target eith
 
 Just starting the tracing session has 3 steps. You start with the EVENT_TRACE_PROPERTIES structure. Now, it's daunting enough on it's own. But when you read the article linked, you realize you have to have open bytes appended *after* the structure for Windows to copy the name into. Then the article doesn't touch on a recurring theme that was the source of a massive headache implementing it... in other languages, some ETW structures get automatically aligned along 8 byte intervals (a Byte is 1 byte, an Integer 2 bytes, a Long 4 bytes... alignment is making each of the largest type appear at, and the total size be, a multiple of its size). Not so in VB-- because of an arcane detail of alignment affecting LARGE_INTEGER: declaring it as two Longs is the standard definition, and indeed seems to *mostly* match the C/C++ def, except that mentions it's a union with a single 8 byte type. This means it triggers 8-byte alignment even if you don't use the QuadPart. Currency wouldn't help here, because VB masks it being a 2x4 byte UDT under the hood. The only true 8 byte type is Double, but that can't be easily substituted for ULONGLONG. It took quite a bit of crashing and failures to realize this, then properly pad the structures. The twinBASIC version of this project uses its LongLong type to remove the need for manual padding. The code uses it's own structure for the StartTrace function that looks like this:
 
-```
+```vba
 Public Type EtpKernelTrace
     tProp As EVENT_TRACE_PROPERTIES
-    padding(0 To 3) As Byte
     LoggerName(0 To 31) As Byte 'LenB(KERNEL_LOGGER_NAMEW)
     padding2(0 To 3) As Byte
 End Type
@@ -39,7 +38,7 @@ End Type
 
 Needed to include 4 bytes of padding after the structure, then add room for the name, then make sure it's all aligned to 8 byte intervals. In the VB6 version, this is done manually because it's targeting x64 Windows... these structures are passed directly to kernel mode WMI modules without being translated through the WOW64 layer. In the twinBASIC version, it's all handled by the compiler depending on whether you build for x86 or x64 Now we're ready to go, with tStruct being a module-level EtpKernelTrace var:
 
-```
+```vba
 With tStruct.tProp
     .Wnode.Flags = WNODE_FLAG_TRACED_GUID
     .Wnode.ClientContext = 1&
@@ -65,7 +64,7 @@ hr = StartTraceW(gTraceHandle, StrPtr(SelectedName & vbNullChar), tStruct)
 This begins to start a trace session. There's SelectedGuid and SelectedName because there's two options here. In Windows 7 and earlier, the name has to be "NT Kernel Logger", and the Guid has to be SystemTraceControlGuid. If you use that method, there can only be 1 such logger running. You have to stop other apps to run yours, and other apps will stop yours when you start them. On Windows 8 and newer, there can be several such loggers, and you supply a custom name and GUID, and inform it you want a kernel logger with the flag added with bUseNewLogMode. This project supports both methods. The EnableFlags are the event providers you want enabled. This project wants the disk and file io ones, but there's many others. Onto step 2...
 
 
-```
+```vba
 Dim tLogfile As EVENT_TRACE_LOGFILEW
 ZeroMemory tLogfile, LenB(tLogfile)
 tLogfile.LoggerName = StrPtr(SelectedName & vbNullChar)
@@ -80,7 +79,7 @@ The final step is a single call: To `ProcessTrace`. Only then will you begin rec
 
 Once you've called ProcessTrace, your callback begins receiving messages. We need to match them up with their provider, and then check the OpCode...
 
-```
+```vba
 Public Sub EventRecordCallback(EventRecord As EVENT_RECORD)
 '...
 If IsEqualIID(EventRecord.EventHeader.ProviderId, DiskIoGuid) Then
@@ -93,25 +92,24 @@ If IsEqualIID(EventRecord.EventHeader.ProviderId, DiskIoGuid) Then
  
 The EVENT_RECORD structure is also a nightmare. Many different parts of it had to having alignment padding added, and it tripped me up for a good long while. Extra thanks to The trick for helping me figure out the right alignment on this part.
 
-From here, we're ready to process the data. The raw data is returned in MOF structures, e.g. this one for one of the Open/Create messages. There's ways to automate the processing of them, but that makes everything so far seem simple, and is the domain for a future project. For now, we manually process the raw data, which we copy from the pointer in .UserData in the event record. The documentation doesn't mention *at all* that even if you're running a 32bit application, these structures have 64bit sizes on 64bit Windows. The official documentation doesn't note which "uint32" types are pointers, and thus are 8 bytes instead of 4, so I had to go digging in some deep system files. The original 32bit structures are all included, but currently this project only works on 64bit Windows. It's possible to tell automatically via flags in the event record... perhaps in the future. EventRecord.EventHeader.Flags has flags EVENT_HEADER_FLAG_[32,64]_BIT_HEADER.
+From here, we're ready to process the data. The raw data is returned in MOF structures, e.g. this one for one of the Open/Create messages. There's ways to automate the processing of them, but that makes everything so far seem simple, and is the domain for a future project. For now, we manually process the raw data, which we copy from the pointer in .UserData in the event record. The documentation doesn't mention *at all* that even if you're running a 32bit application, these structures have 64bit sizes on 64bit Windows. The official documentation doesn't note which "uint32" types are pointers, and thus are 8 bytes instead of 4, so I had to go digging in some deep system files. It's possible to tell automatically via flags in the event record... perhaps in the future. EventRecord.EventHeader.Flags has flags EVENT_HEADER_FLAG_[32,64]_BIT_HEADER.
 
 Here what the File Open/Create structure looks like, and how we set it up:
 
-```
-Public Type FileIo_Create64 'Event IDs: 64
-    IrpPtr As Currency
-    FileObject As Currency
+```vba
+Public Type FileIo_Create 'Event IDs: 64
+    IrpPtr As LongPtr
+    FileObject As LongPtr
     ttid As Long
     CreateOptions As CreateOpts
     FileAttributes As FILE_ATTRIBUTES
     ShareAccess As Long
-    OpenPath(MAX_PATH) As Integer
+    OpenPath(MAX_PATH_DOS) As Integer
 End Type
 ```
 
-The tB version uses the native LongPtr datatype instead of Currency (or where it's always 8 bytes, LongLong).
-
-For VB6, fortunately VB has the Currency data type, which we also used for our event trace handles, which is 8 bytes. We can use this because there's no point where we have to interact a numeric representation of the value... it's just all raw bytes behind the scenes. Unfortunately, FileAttributes is only what's passed to the NtOpenFile API and not an actual query of the file's attributes, so is almost always 0 or FILE_ATTRIBUTES_NORMAL. We pick MAX_PATH for the size of the array, because using a fixed-size array avoids VB's internal SAFEARRAY type, which would make copying a structure from a language without it much more complicated. Converting a string of integer's to a normal string is trivial, but the real problems comes when you see what it is: files names look like \Device\HarddiskVolume1\folder\file.exe. To convert those into normal Win32 paths the project creates a map by querying each possible drive letter in the QueryDosDevice API, which returns a path like that for each drive.
+The tB version uses the native LongPtr datatype instead of Currency (or where it's always 8 bytes, LongLong).\
+Unfortunately, FileAttributes is only what's passed to the NtOpenFile API and not an actual query of the file's attributes, so is almost always 0 or FILE_ATTRIBUTES_NORMAL. We pick MAX_PATH for the size of the array, because using a fixed-size array avoids VB's internal SAFEARRAY type, which would make copying a structure from a language without it much more complicated. Converting a string of integer's to a normal string is trivial, but the real problems comes when you see what it is: files names look like \Device\HarddiskVolume1\folder\file.exe. To convert those into normal Win32 paths the project creates a map by querying each possible drive letter in the QueryDosDevice API, which returns a path like that for each drive.
 
 Not all events contain a file name, so the project stores a record with the FileObject, which allows us to match other operations on the same file, and get the name. The documentation says we're supposed to receive event code 0 for names... but I've never seen that message come in. Perhaps on earlier Windows versions.
 

@@ -4,6 +4,8 @@
 
 Event Tracing fo Windows (ETW) File Activity Monitor, VB6/twinBASIC x64 port
 
+**Update (2026 May 21)**: Added TBEventTraceWDL.twinproj, a version that uses the Windows Development Library for twinBASIC (WinDevLib) for APIs instead of local declares. Also reduces timeout errors when stopping the trace.
+
 **Update (2023 Feb 17)**: Removed temporary fix as erase bug has been fixed. Corrected sign issues in some hex literals. 
 
 **Update (2022 Dec 07)**: Applied temporary fix for twinBASIC bug that results in the ListView being erased on resize. Also, x64 binary no longer has a twinBASIC banner on startup as I'm now proudly supporting the project with a subscription :)

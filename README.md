@@ -4,6 +4,8 @@
 
 Event Tracing fo Windows (ETW) File Activity Monitor, VB6/twinBASIC x64 port
 
+**Update (2026 Jun 27)**: Bug fix for WDL version for crashes in `LPWSTRtoStr`. When APIs were switched to WinDevLib a local version of LPWSTRtoStr began using a different SysReAllocString signature, resulting in crashing. The local version has been removed as this utility function exists in WinDevLib.
+
 **Update (2026 May 21)**: Added TBEventTraceWDL.twinproj, a version that uses the Windows Development Library for twinBASIC (WinDevLib) for APIs instead of local declares. Also reduces timeout errors when stopping the trace.
 
 **Update (2023 Feb 17)**: Removed temporary fix as erase bug has been fixed. Corrected sign issues in some hex literals. 
